@@ -2,6 +2,7 @@
 import { sgpmConfig } from '../config'
 import puppeteer from 'puppeteer'
 import { sendTelegramMessage } from '../utils/sendTelegramMessage'
+import { launchWithRandomProxy } from '../utils/proxyLauncher'
 
 // 只在每个页面检测并点击 Cookie 弹窗
 async function handleCookiePopup(page: any) {
@@ -82,13 +83,16 @@ function saveStatusCache(file: string, data: Record<string, boolean>) {
 
 // 主流程
 export async function runSgpmJob() {
-  const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
+  const { browser, page: firstPage, proxy } = await launchWithRandomProxy();
   const statusCache = loadStatusCache(sgpmConfig.statusFile);
   const results: Promise<void>[] = [];
   for (let i = 0; i < sgpmConfig.productUrls.length; i++) {
     const url = sgpmConfig.productUrls[i];
     results.push((async () => {
-      const page = await browser.newPage();
+      const page = i === 0 ? firstPage : await browser.newPage();
+      if (proxy && proxy.username && proxy.password) {
+        await page.authenticate({ username: proxy.username, password: proxy.password });
+      }
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
       await page.evaluateOnNewDocument(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => false });
