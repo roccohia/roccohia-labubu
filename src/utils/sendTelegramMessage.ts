@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+import fetch, { Response } from 'node-fetch';
 import dotenv from 'dotenv';
 import { logger } from './logger';
 
@@ -54,7 +54,7 @@ export async function sendTelegramMessage(text: string, retries: number = 3): Pr
           disable_web_page_preview: true
         }),
         timeout: 10000 // 10秒超时
-      });
+      }) as Response;
 
       if (res.ok) {
         logger.success('Telegram 消息发送成功');
