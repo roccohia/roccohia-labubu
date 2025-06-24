@@ -558,42 +558,84 @@ function formatStockMessage(title: string, url: string, inStock: boolean): strin
 }
 
 /**
- * 安全地检查产品状态 - 完全重写以避免框架分离问题
+ * 安全地检查产品状态 - 使用多种方法避免框架分离问题
  */
 async function checkProductSafely(page: any, url: string): Promise<{ title: string; inStock: boolean }> {
   console.log('[INFO] 开始安全检查产品状态');
 
-  // 使用更简单的方法，避免复杂的页面操作
+  let pageContent = '';
+  let pageTitle = '';
+  let currentUrl = '';
+
+  // 方法1: 尝试直接获取页面信息
   try {
-    // 等待页面完全加载
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    console.log('[INFO] 尝试方法1: 直接获取页面信息');
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
-    // 获取页面内容，而不是使用复杂的选择器
-    const pageContent = await page.content();
-    const pageTitle = await page.title();
-    const currentUrl = await page.url();
+    pageContent = await page.content();
+    pageTitle = await page.title();
+    currentUrl = await page.url();
 
-    console.log(`页面标题: ${pageTitle}`);
-    console.log(`当前URL: ${currentUrl}`);
-    console.log(`页面内容长度: ${pageContent.length}`);
-
-    // 从页面内容中提取信息
-    const result = extractProductInfoFromHTML(pageContent, pageTitle, url);
-
-    console.log(`产品信息提取结果:`, result);
-    return result;
+    console.log(`✓ 方法1成功 - 页面标题: ${pageTitle}`);
+    console.log(`✓ 当前URL: ${currentUrl}`);
+    console.log(`✓ 页面内容长度: ${pageContent.length}`);
 
   } catch (error) {
-    console.error('[ERROR] 安全检查产品状态失败:', error);
+    console.log(`✗ 方法1失败: ${error instanceof Error ? error.message : String(error)}`);
 
-    // 返回从URL提取的基本信息
+    // 方法2: 使用evaluate获取基本信息
+    try {
+      console.log('[INFO] 尝试方法2: 使用evaluate获取基本信息');
+
+      const basicInfo = await page.evaluate(() => {
+        return {
+          title: document.title || '',
+          url: window.location.href || '',
+          bodyText: document.body ? document.body.innerText.substring(0, 5000) : '',
+          htmlLength: document.documentElement ? document.documentElement.outerHTML.length : 0
+        };
+      });
+
+      pageTitle = basicInfo.title;
+      currentUrl = basicInfo.url;
+      pageContent = `<html><head><title>${basicInfo.title}</title></head><body>${basicInfo.bodyText}</body></html>`;
+
+      console.log(`✓ 方法2成功 - 页面标题: ${pageTitle}`);
+      console.log(`✓ 当前URL: ${currentUrl}`);
+      console.log(`✓ 页面文本长度: ${basicInfo.bodyText.length}`);
+
+    } catch (error2) {
+      console.log(`✗ 方法2失败: ${error2 instanceof Error ? error2.message : String(error2)}`);
+
+      // 方法3: 从URL提取基本信息
+      console.log('[INFO] 使用方法3: 从URL提取基本信息');
+      const urlParts = url.split('/');
+      const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
+      const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+      return {
+        title: title,
+        inStock: false // 默认为缺货
+      };
+    }
+  }
+
+  // 从获取的内容中提取产品信息
+  try {
+    const result = extractProductInfoFromHTML(pageContent, pageTitle, url);
+    console.log(`✓ 产品信息提取结果:`, result);
+    return result;
+  } catch (extractError) {
+    console.error('[ERROR] 产品信息提取失败:', extractError);
+
+    // 最后的备用方案
     const urlParts = url.split('/');
     const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
     const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
     return {
       title: title,
-      inStock: false // 默认为缺货
+      inStock: false
     };
   }
 }

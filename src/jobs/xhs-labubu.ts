@@ -199,9 +199,17 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
             }
           }
 
-          // 如果还是没找到，输出调试信息
+          // 如果还是没找到，输出详细调试信息
           if (!publishTime) {
-            console.log(`❌ 未找到时间信息，帖子HTML:`, section.outerHTML.substring(0, 500));
+            console.log(`❌ 未找到时间信息，帖子HTML:`, section.outerHTML.substring(0, 1000));
+            console.log(`❌ 帖子所有文本内容:`, (section as HTMLElement).innerText?.substring(0, 500));
+
+            // 尝试查找所有可能包含时间的元素
+            const allSpans = section.querySelectorAll('span');
+            console.log(`❌ 所有span元素内容:`, Array.from(allSpans).map(span => span.textContent?.trim()).filter(text => text));
+
+            const allDivs = section.querySelectorAll('div');
+            console.log(`❌ 所有div元素内容:`, Array.from(allDivs).slice(0, 10).map(div => div.textContent?.trim()).filter(text => text && text.length < 50));
           }
 
           // 抓取作者信息 - 使用更精确的小红书选择器
@@ -292,7 +300,7 @@ export async function runLabubuJob(customLogger: LoggerInstance = logger, debugM
     let seenPosts = seenPostsManager.get();
     let extractionResult: ExtractionResult;
 
-    if (debugMode) {
+    if (debugMode && process.env.XHS_REAL_TEST !== 'true') {
       customLogger.info('[DEBUG] 调试模式，使用模拟数据');
       extractionResult = {
         posts: [
