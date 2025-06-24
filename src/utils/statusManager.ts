@@ -9,6 +9,7 @@ export class StatusManager<T> {
   private filePath: string;
   private logger: Logger;
   private data: T;
+  private saveTimeout: NodeJS.Timeout | null = null;
 
   constructor(filePath: string, logger: Logger, initialData: T) {
     this.filePath = filePath;
@@ -48,6 +49,12 @@ export class StatusManager<T> {
    */
   public set(newData: T): void {
     this.data = newData;
+    this.debouncedSave();
+  }
+
+  private debouncedSave() {
+    if (this.saveTimeout) clearTimeout(this.saveTimeout);
+    this.saveTimeout = setTimeout(() => this.save(), 500);
   }
   
   /**

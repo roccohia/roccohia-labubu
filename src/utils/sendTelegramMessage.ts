@@ -23,6 +23,6 @@ export async function sendTelegramMessage(text: string) {
   })
   if (!res.ok) {
     const err = await res.text()
-    throw new Error('Telegram 推送失败: ' + err)
+    throw new Error('Telegram 推送失败: ' + err + ' | text: ' + text)
   }
 } 

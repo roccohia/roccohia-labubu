@@ -16,20 +16,22 @@ try {
   // 可选：移除 navigator.webdriver
   stealth.enabledEvasions.delete('webdriver');
   // 可选：自定义 user-agent
-  // await page.setUserAgent('你的本地UA');
+  // puppeteer.use(stealth); // 已在下方 use
   puppeteer.use(stealth);
 } catch (e) {
   logger.warn('StealthPlugin 配置增强失败: ' + (e instanceof Error ? e.message : String(e)));
 }
 
-// 提取所有帖子链接和标题
+// 提取所有帖子链接和标题，兼容多种结构
 async function extractPosts(page: any) {
   return await page.evaluate(() => {
     const posts: { url: string, previewTitle: string }[] = [];
-    document.querySelectorAll('section.note-item').forEach(section => {
+    document.querySelectorAll('section.note-item, .note-item, .note-card').forEach(section => {
       // 抓取以 /explore/ 开头的直达链接
       const a = section.querySelector('a[href^="/explore/"]') as HTMLAnchorElement | null;
-      const span = section.querySelector('div.footer > a.title > span') as HTMLElement | null;
+      let span = section.querySelector('div.footer > a.title > span') as HTMLElement | null;
+      if (!span) span = section.querySelector('span.title') as HTMLElement | null;
+      if (!span) span = section.querySelector('span') as HTMLElement | null;
       if (a && span && span.innerText.trim()) {
         posts.push({
           url: a.href,
@@ -58,8 +60,17 @@ export async function runLabubuJob(customLogger: Logger = logger, debugMode = fa
     customLogger.info('--- 开始执行小红书Labubu监控任务 ---');
     const { browser, page, proxy } = await launchWithRandomProxy();
     try {
-      await page.authenticate({ username: proxy.username, password: proxy.password }); // 保证认证
-      const cookies = fs.existsSync(xhsConfig.cookiesFile) ? JSON.parse(fs.readFileSync(xhsConfig.cookiesFile, 'utf-8')) : null;
+      if (proxy && proxy.username && proxy.password) {
+        await page.authenticate({ username: proxy.username, password: proxy.password }); // 保证认证
+      }
+      let cookies = null;
+      try {
+        if (fs.existsSync(xhsConfig.cookiesFile)) {
+          cookies = JSON.parse(fs.readFileSync(xhsConfig.cookiesFile, 'utf-8'));
+        }
+      } catch (e) {
+        customLogger.warn('Cookies 文件读取失败: ' + (e instanceof Error ? e.message : String(e)));
+      }
       if (cookies) {
         await page.setCookie(...cookies);
         customLogger.info('已加载小红书 cookies');
@@ -75,8 +86,12 @@ export async function runLabubuJob(customLogger: Logger = logger, debugMode = fa
     } catch (e: any) {
       customLogger.error(`[代理 ${proxy.ip}:${proxy.port}] 执行任务时发生严重错误: ${e.message}`);
     } finally {
-      await browser.close();
-      customLogger.info('浏览器已关闭');
+      try {
+        await browser.close();
+        customLogger.info('浏览器已关闭');
+      } catch (e) {
+        customLogger.warn('关闭浏览器时出错: ' + (e instanceof Error ? e.message : String(e)));
+      }
     }
   }
 
@@ -91,11 +106,7 @@ export async function runLabubuJob(customLogger: Logger = logger, debugMode = fa
       const isAlreadySeen = seenPosts.includes(post.url);
 
       if (isKeywordMatch && !isAlreadySeen) {
-        const msg = `🚨 <b>小红书关键词新帖</b>
-
-<b>📝 标题：</b>${post.previewTitle}
-<b>🔗 直达链接：</b><a href="${post.url}">${post.url}</a>
-<b>⏰ 推送时间：</b>${new Date().toLocaleString()}`
+        const msg = `🚨 <b>小红书关键词新帖</b>\n\n<b>📝 标题：</b>${post.previewTitle}\n<b>🔗 直达链接：</b><a href="${post.url}">${post.url}</a>\n<b>⏰ 推送时间：</b>${new Date().toLocaleString()}`
         customLogger.success(`发现新帖: ${post.previewTitle}`);
         await sendTelegramMessage(msg);
         found = true;
@@ -108,9 +119,11 @@ export async function runLabubuJob(customLogger: Logger = logger, debugMode = fa
   
   // 3. 更新已发送列表
   if (newlySentPosts.length > 0) {
+    // @ts-ignore
+    const maxSeenPosts = xhsConfig.maxSeenPosts || 500;
     const updatedSeenPosts = [...seenPosts, ...newlySentPosts];
-    if (updatedSeenPosts.length > 500) {
-      updatedSeenPosts.splice(0, updatedSeenPosts.length - 500);
+    if (updatedSeenPosts.length > maxSeenPosts) {
+      updatedSeenPosts.splice(0, updatedSeenPosts.length - maxSeenPosts);
     }
     seenPostsManager.set(updatedSeenPosts);
     seenPostsManager.save();
