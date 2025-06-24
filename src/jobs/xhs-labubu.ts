@@ -52,8 +52,8 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
   try {
     logger.debug('开始提取帖子数据');
 
-    const posts = await page.evaluate(() => {
-      const posts: PostData[] = [];
+    // 先获取页面的调试信息
+    const debugInfo = await page.evaluate(() => {
       const selectors = [
         'section.note-item',
         '.note-item',
@@ -64,54 +64,101 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
         '.note-list .item'
       ];
 
-      // 尝试多种选择器
-      let elements: NodeListOf<Element> | null = null;
+      const debug = {
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+        htmlLength: document.documentElement.outerHTML.length,
+        selectorResults: {} as Record<string, number>,
+        bodyStructure: [] as string[],
+        foundElements: 0,
+        selectedSelector: ''
+      };
+
+      // 测试所有选择器
       for (const selector of selectors) {
-        elements = document.querySelectorAll(selector);
-        if (elements.length > 0) {
-          console.log(`使用选择器: ${selector}, 找到 ${elements.length} 个元素`);
-          break;
+        const elements = document.querySelectorAll(selector);
+        debug.selectorResults[selector] = elements.length;
+        if (elements.length > 0 && !debug.selectedSelector) {
+          debug.selectedSelector = selector;
+          debug.foundElements = elements.length;
         }
       }
+
+      // 测试其他可能的选择器
+      const alternativeSelectors = [
+        '.search-item',
+        '.feeds-item',
+        '.content-item',
+        '[class*="note"]',
+        '[class*="item"]',
+        '[class*="card"]',
+        'div[class*="note"]',
+        'div[class*="item"]',
+        'section'
+      ];
+
+      for (const selector of alternativeSelectors) {
+        if (!debug.selectorResults[selector]) {
+          debug.selectorResults[selector] = document.querySelectorAll(selector).length;
+        }
+      }
+
+      // 获取页面主要结构
+      const bodyChildren = document.body.children;
+      for (let i = 0; i < Math.min(bodyChildren.length, 10); i++) {
+        const child = bodyChildren[i];
+        debug.bodyStructure.push(`<${child.tagName.toLowerCase()}> class="${child.className}" id="${child.id}"`);
+      }
+
+      return debug;
+    });
+
+    // 输出调试信息
+    logger.info('=== 小红书页面调试信息 ===');
+    logger.info(`页面标题: ${debugInfo.pageTitle}`);
+    logger.info(`页面URL: ${debugInfo.pageUrl}`);
+    logger.info(`页面HTML长度: ${debugInfo.htmlLength}`);
+    logger.info(`选择器测试结果:`);
+    for (const [selector, count] of Object.entries(debugInfo.selectorResults)) {
+      logger.info(`  ${selector}: ${count} 个元素`);
+    }
+    logger.info(`页面主要结构:`);
+    debugInfo.bodyStructure.forEach((structure, index) => {
+      logger.info(`  ${index}: ${structure}`);
+    });
+
+    if (debugInfo.foundElements === 0) {
+      logger.warn('未找到任何帖子元素，返回空结果');
+      return {
+        posts: [],
+        success: true
+      };
+    }
+
+    logger.info(`使用选择器: ${debugInfo.selectedSelector}, 找到 ${debugInfo.foundElements} 个元素`);
+
+    // 提取帖子数据
+    const result = await page.evaluate((selectedSelector: string) => {
+      const posts: any[] = [];
+      const debugInfo: any[] = [];
+      const elements = document.querySelectorAll(selectedSelector);
 
       if (!elements || elements.length === 0) {
-        console.warn('未找到任何帖子元素');
-        // 输出页面的基本信息用于调试
-        console.log('页面标题:', document.title);
-        console.log('页面URL:', window.location.href);
-        console.log('页面HTML长度:', document.documentElement.outerHTML.length);
-        console.log('可能的帖子容器:', document.querySelectorAll('div[class*="note"], div[class*="item"], section').length);
-
-        // 尝试查找其他可能的选择器
-        const alternativeSelectors = [
-          '.note-item',
-          '.search-item',
-          '.feeds-item',
-          '.content-item',
-          '[class*="note"]',
-          '[class*="item"]',
-          '[class*="card"]'
-        ];
-
-        console.log('尝试其他选择器:');
-        for (const selector of alternativeSelectors) {
-          const count = document.querySelectorAll(selector).length;
-          console.log(`  ${selector}: ${count} 个元素`);
-        }
-
-        // 输出页面的主要结构
-        const bodyChildren = document.body.children;
-        console.log(`页面主要结构 (${bodyChildren.length} 个子元素):`);
-        for (let i = 0; i < Math.min(bodyChildren.length, 10); i++) {
-          const child = bodyChildren[i];
-          console.log(`  ${i}: <${child.tagName.toLowerCase()}> class="${child.className}" id="${child.id}"`);
-        }
-
-        return posts;
+        return { posts, debugInfo: ['没有找到元素'] };
       }
 
+      let debugCount = 0;
       elements.forEach((section, index) => {
         try {
+          // 调试：记录前几个元素的详细信息
+          if (index < 3) {
+            debugCount++;
+            debugInfo.push(`=== 调试帖子 ${index + 1} ===`);
+            debugInfo.push(`元素HTML: ${section.outerHTML.substring(0, 500)}`);
+            debugInfo.push(`所有链接: ${Array.from(section.querySelectorAll('a')).map(a => a.href).slice(0, 5).join(', ')}`);
+            debugInfo.push(`所有文本: ${section.textContent?.substring(0, 200)}`);
+          }
+
           // 抓取以 /explore/ 开头的直达链接
           const linkSelectors = [
             'a[href^="/explore/"]',
@@ -124,8 +171,15 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
           for (const linkSelector of linkSelectors) {
             linkElement = section.querySelector(linkSelector) as HTMLAnchorElement;
             if (linkElement && linkElement.href.includes('/explore/')) {
+              if (index < 3) {
+                debugInfo.push(`找到链接: ${linkElement.href} 使用选择器: ${linkSelector}`);
+              }
               break;
             }
+          }
+
+          if (!linkElement && index < 3) {
+            debugInfo.push('未找到有效链接');
           }
 
           // 抓取标题
@@ -294,8 +348,48 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
               url: url
             });
 
-            // 检查时间是否在10小时内
-            const isWithin10Hours = checkTimeWithin10Hours(publishTime || '时间未知');
+            // 检查时间是否在10小时内（在 evaluate 中重新实现）
+            const isWithin10Hours = (() => {
+              const timeText = publishTime || '时间未知';
+              if (!timeText || timeText === '时间未知') {
+                return false;
+              }
+
+              // 匹配不同的时间格式
+              const patterns = [
+                /(\d+)分钟前/,
+                /(\d+)小时前/,
+                /编辑于\s*(\d+)分钟前/,
+                /编辑于\s*(\d+)小时前/,
+                /发布于\s*(\d+)分钟前/,
+                /发布于\s*(\d+)小时前/
+              ];
+
+              for (const pattern of patterns) {
+                const match = timeText.match(pattern);
+                if (match) {
+                  const value = parseInt(match[1]);
+                  if (timeText.includes('分钟前')) {
+                    return value <= 600; // 10小时 = 600分钟
+                  } else if (timeText.includes('小时前')) {
+                    return value <= 10;
+                  }
+                }
+              }
+
+              // 如果是"刚刚"、"今天"等，认为是最近的
+              if (timeText.includes('刚刚') || timeText.includes('今天')) {
+                return true;
+              }
+
+              // 如果包含"天前"、"月前"、"年前"，认为不是最近的
+              if (timeText.includes('天前') || timeText.includes('月前') || timeText.includes('年前')) {
+                return false;
+              }
+
+              // 默认返回 true，避免错过重要信息
+              return true;
+            })();
 
             posts.push({
               url,
@@ -306,16 +400,22 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
             });
           }
         } catch (error) {
-          console.warn(`处理第 ${index} 个帖子元素时出错:`, error);
+          if (index < 3) {
+            debugInfo.push(`处理第 ${index} 个帖子元素时出错: ${error}`);
+          }
         }
       });
 
-      return posts;
-    });
+      return { posts, debugInfo };
+    }, debugInfo.selectedSelector);
 
-    logger.debug(`成功提取 ${posts.length} 个帖子`);
+    // 输出调试信息
+    logger.info('=== 帖子提取调试信息 ===');
+    result.debugInfo.forEach(info => logger.info(info));
+
+    logger.debug(`成功提取 ${result.posts.length} 个帖子`);
     return {
-      posts,
+      posts: result.posts,
       success: true
     };
 
