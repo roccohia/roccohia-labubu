@@ -19,6 +19,7 @@ interface PostData {
   previewTitle: string;
   publishTime?: string;
   author?: string;
+  isRecent?: boolean;
 }
 
 /**
@@ -155,8 +156,8 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
               const timeText = timeElement.innerText.trim();
               console.log(`检查选择器 ${timeSelector}: "${timeText}"`);
 
-              // 验证是否看起来像时间格式，包含新的格式 "编辑于 06-15 新加坡"
-              if (timeText.match(/\d+[分时天月年前]|ago|\d{1,2}[-/]\d{1,2}|\d{4}[-/]\d{1,2}[-/]\d{1,2}|昨天|今天|前天|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}|编辑于\s*\d{2}-\d{2}|发布于|更新于/)) {
+              // 验证是否看起来像时间格式，包含新的格式 "编辑于 6天前 新加坡"
+              if (timeText.match(/\d+[分时天月年前]|ago|\d{1,2}[-/]\d{1,2}|\d{4}[-/]\d{1,2}[-/]\d{1,2}|昨天|今天|前天|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}|编辑于\s*\d+[天小时分钟]前|编辑于\s*\d{2}-\d{2}|发布于|更新于/)) {
                 publishTime = timeText;
                 console.log(`✓ 找到发布时间: ${publishTime} 使用选择器: ${timeSelector}`);
                 break;
@@ -176,8 +177,13 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
             console.log(`未找到时间元素，从全文本中搜索: "${allText.substring(0, 200)}..."`);
 
             const timePatterns = [
+              /(编辑于\s*\d+天前[^0-9]*)/,      // 匹配 "编辑于 6天前 新加坡"
+              /(编辑于\s*\d+小时前[^0-9]*)/,    // 匹配 "编辑于 2小时前 新加坡"
+              /(编辑于\s*\d+分钟前[^0-9]*)/,    // 匹配 "编辑于 30分钟前 新加坡"
               /(编辑于\s*\d{2}-\d{2}[^0-9]*)/,  // 匹配 "编辑于 06-15 新加坡"
+              /(发布于\s*\d+天前[^0-9]*)/,      // 匹配 "发布于 X天前"
               /(发布于\s*\d{2}-\d{2}[^0-9]*)/,  // 匹配 "发布于 XX-XX"
+              /(更新于\s*\d+天前[^0-9]*)/,      // 匹配 "更新于 X天前"
               /(更新于\s*\d{2}-\d{2}[^0-9]*)/,  // 匹配 "更新于 XX-XX"
               /(\d+分钟前)/,
               /(\d+小时前)/,
@@ -262,11 +268,15 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
               url: url
             });
 
+            // 检查时间是否在10小时内
+            const isWithin10Hours = checkTimeWithin10Hours(publishTime || '时间未知');
+
             posts.push({
               url,
               previewTitle: titleElement.innerText.trim(),
               publishTime: publishTime || '时间未知',
-              author: author || '作者未知'
+              author: author || '作者未知',
+              isRecent: isWithin10Hours
             });
           }
         } catch (error) {
@@ -291,6 +301,51 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+/**
+ * 检查时间是否在10小时内
+ */
+function checkTimeWithin10Hours(timeText: string): boolean {
+  if (!timeText || timeText === '时间未知') {
+    return false;
+  }
+
+  // 匹配不同的时间格式
+  const patterns = [
+    /(\d+)分钟前/,
+    /(\d+)小时前/,
+    /编辑于\s*(\d+)分钟前/,
+    /编辑于\s*(\d+)小时前/,
+    /发布于\s*(\d+)分钟前/,
+    /发布于\s*(\d+)小时前/
+  ];
+
+  for (const pattern of patterns) {
+    const match = timeText.match(pattern);
+    if (match) {
+      const value = parseInt(match[1]);
+      if (timeText.includes('分钟前')) {
+        return value <= 600; // 10小时 = 600分钟
+      } else if (timeText.includes('小时前')) {
+        return value <= 10;
+      }
+    }
+  }
+
+  // 如果是"刚刚"、"今天"等，认为是最近的
+  if (timeText.includes('刚刚') || timeText.includes('今天')) {
+    return true;
+  }
+
+  // 如果包含"天前"、"月前"、"年前"，认为不是最近的
+  if (timeText.includes('天前') || timeText.includes('月前') || timeText.includes('年前')) {
+    return false;
+  }
+
+  // 默认返回 true，避免错过重要信息
+  console.log(`无法判断时间范围，默认保留: ${timeText}`);
+  return true;
 }
 
 /**
@@ -498,10 +553,17 @@ async function processExtractedPosts(
       const isAlreadySeen = seenPosts.includes(post.url);
 
       if (isKeywordMatch) {
+        // 检查时间是否在10小时内
+        const isRecent = (post as any).isRecent !== false; // 默认为true，除非明确为false
+        if (!isRecent) {
+          customLogger.info(`跳过超过10小时的帖子: ${post.previewTitle} (${post.publishTime})`);
+          continue;
+        }
+
         matchedPosts.push(post);
 
         if (!isAlreadySeen) {
-          customLogger.success(`发现新的关键词匹配帖子: ${post.previewTitle}`);
+          customLogger.success(`发现新的关键词匹配帖子: ${post.previewTitle} (${post.publishTime})`);
 
           // 发送通知
           const message = formatTelegramMessage(post);

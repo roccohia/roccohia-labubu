@@ -184,6 +184,8 @@ export async function runSgpmJob(): Promise<void> {
 async function launchOptimizedBrowser() {
   const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
 
+  console.log('[INFO] PopMart 监控不使用代理，直接连接');
+
   const optimizedArgs = [
     '--no-sandbox',
     '--disable-setuid-sandbox',
@@ -227,6 +229,7 @@ async function launchOptimizedBrowser() {
     console.log('[INFO] 检测到 GitHub Actions 环境，使用特殊配置');
   }
 
+  // 不使用代理，直接启动浏览器
   return await puppeteer.launch({
     headless: true,
     args: optimizedArgs,
