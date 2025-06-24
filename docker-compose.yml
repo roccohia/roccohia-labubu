@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  labubu-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: labubu-watcher
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - USE_PROXY=true
+      - DEBUG_MODE=false
+      # 从 .env 文件加载环境变量
+      - BOT_TOKEN=${BOT_TOKEN}
+      - CHAT_ID=${CHAT_ID}
+      - PROXY_1_IP=${PROXY_1_IP}
+      - PROXY_1_PORT=${PROXY_1_PORT}
+      - PROXY_1_USERNAME=${PROXY_1_USERNAME}
+      - PROXY_1_PASSWORD=${PROXY_1_PASSWORD}
+      - PROXY_2_IP=${PROXY_2_IP}
+      - PROXY_2_PORT=${PROXY_2_PORT}
+      - PROXY_2_USERNAME=${PROXY_2_USERNAME}
+      - PROXY_2_PASSWORD=${PROXY_2_PASSWORD}
+      - PROXY_3_IP=${PROXY_3_IP}
+      - PROXY_3_PORT=${PROXY_3_PORT}
+      - PROXY_3_USERNAME=${PROXY_3_USERNAME}
+      - PROXY_3_PASSWORD=${PROXY_3_PASSWORD}
+    volumes:
+      # 持久化数据文件
+      - ./data:/app/data
+      # 日志文件
+      - ./logs:/app/logs
+    networks:
+      - labubu-network
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 可选：添加一个简单的 web 界面用于监控
+  # web-dashboard:
+  #   build:
+  #     context: ./dashboard
+  #     dockerfile: Dockerfile
+  #   container_name: labubu-dashboard
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NODE_ENV=production
+  #   networks:
+  #     - labubu-network
+  #   depends_on:
+  #     - labubu-watcher
+
+networks:
+  labubu-network:
+    driver: bridge
+
+volumes:
+  data:
+  logs:

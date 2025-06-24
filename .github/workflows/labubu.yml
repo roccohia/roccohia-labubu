@@ -3,34 +3,141 @@ name: Labubu Watcher
 on:
   schedule:
     - cron: '*/10 * * * *'  # 每10分钟运行一次
-  workflow_dispatch:
+  workflow_dispatch:  # 允许手动触发
+  push:
+    branches: [ main ]  # 推送到主分支时运行（用于测试）
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'docs/**'
+
+env:
+  NODE_ENV: production
+  USE_PROXY: true
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: false
+  PUPPETEER_DOWNLOAD_HOST: 'https://npmmirror.com/mirrors/chromium'
 
 jobs:
   run-labubu:
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # 设置超时时间
+
+    strategy:
+      fail-fast: false  # 即使一个任务失败，其他任务继续执行
+
     env:
-      PUPPETEER_DOWNLOAD_HOST: 'https://npmmirror.com/mirrors/chromium'
-      HTTP_PROXY: ${{ secrets.HTTP_PROXY }}   # 只影响 Puppeteer
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
-      NODE_ENV: production
-      USE_PROXY: true
+      # 代理配置 - 支持多个代理
+      PROXY_1_IP: ${{ secrets.PROXY_1_IP }}
+      PROXY_1_PORT: ${{ secrets.PROXY_1_PORT }}
+      PROXY_1_USERNAME: ${{ secrets.PROXY_1_USERNAME }}
+      PROXY_1_PASSWORD: ${{ secrets.PROXY_1_PASSWORD }}
+      PROXY_2_IP: ${{ secrets.PROXY_2_IP }}
+      PROXY_2_PORT: ${{ secrets.PROXY_2_PORT }}
+      PROXY_2_USERNAME: ${{ secrets.PROXY_2_USERNAME }}
+      PROXY_2_PASSWORD: ${{ secrets.PROXY_2_PASSWORD }}
+      PROXY_3_IP: ${{ secrets.PROXY_3_IP }}
+      PROXY_3_PORT: ${{ secrets.PROXY_3_PORT }}
+      PROXY_3_USERNAME: ${{ secrets.PROXY_3_USERNAME }}
+      PROXY_3_PASSWORD: ${{ secrets.PROXY_3_PASSWORD }}
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: corepack enable
-      - name: Cache node modules and puppeteer chromium
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
+
+      - name: Cache dependencies and Puppeteer
         uses: actions/cache@v4
         with:
           path: |
-            node_modules
-            ~/.cache/yarn
+            ${{ steps.yarn-cache-dir-path.outputs.dir }}
             ~/.cache/puppeteer
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+            node_modules
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}-${{ hashFiles('**/package.json') }}
           restore-keys: |
+            ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}-
             ${{ runner.os }}-yarn-
-      - run: yarn install --immutable
-      - run: chmod +x ./node_modules/.bin/ts-node || true
-      - run: npx ts-node src/jobs/run-all.ts
+
+      - name: Install dependencies
+        run: |
+          yarn install --immutable --inline-builds
+
+      - name: Install system dependencies for Puppeteer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3-dev \
+            libatk-bridge2.0-dev \
+            libdrm-dev \
+            libxcomposite-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libgbm-dev \
+            libxss-dev \
+            libasound2-dev \
+            libatspi2.0-dev \
+            libgtk-3-dev
+
+      - name: Verify environment
+        run: |
+          echo "Node version: $(node --version)"
+          echo "Yarn version: $(yarn --version)"
+          echo "TypeScript version: $(npx tsc --version)"
+          echo "Environment: $NODE_ENV"
+          echo "Use proxy: $USE_PROXY"
+
+      - name: Run configuration validation
+        run: |
+          npx ts-node -e "
+            import { validateConfig } from './src/config';
+            const result = validateConfig();
+            if (!result.valid) {
+              console.error('Configuration validation failed:', result.errors);
+              process.exit(1);
+            }
+            console.log('Configuration validation passed');
+          "
+
+      - name: Run Labubu monitoring tasks
+        run: |
+          npx ts-node src/jobs/run-all.ts
+        timeout-minutes: 25
+
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-artifacts-${{ github.run_number }}
+          path: |
+            debug-*.png
+            debug-*.html
+            *.log
+          retention-days: 7
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.CHAT_ID }}" \
+            -d text="🚨 GitHub Actions 执行失败！
+
+          工作流: ${{ github.workflow }}
+          运行编号: ${{ github.run_number }}
+          提交: ${{ github.sha }}
+          时间: $(date)
+
+          请检查 GitHub Actions 日志获取详细信息。" \
+            -d parse_mode="HTML"

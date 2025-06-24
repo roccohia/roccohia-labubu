@@ -1,0 +1,23 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "node -r ts-node/register src/jobs/run-all.ts"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[env]
+NODE_ENV = "production"
+USE_PROXY = "true"
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "false"
+PUPPETEER_DOWNLOAD_HOST = "https://npmmirror.com/mirrors/chromium"
+
+# 这些环境变量需要在 Railway 控制台中设置
+# BOT_TOKEN = "${{BOT_TOKEN}}"
+# CHAT_ID = "${{CHAT_ID}}"
+# PROXY_1_IP = "${{PROXY_1_IP}}"
+# PROXY_1_PORT = "${{PROXY_1_PORT}}"
+# PROXY_1_USERNAME = "${{PROXY_1_USERNAME}}"
+# PROXY_1_PASSWORD = "${{PROXY_1_PASSWORD}}"
+# ... 其他代理配置
