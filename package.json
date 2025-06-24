@@ -20,7 +20,7 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "node-fetch": "^2.7.0",
-    "puppeteer": "^21.3.8",
+    "puppeteer": "^24.10.2",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "ts-node": "^10.9.2",
