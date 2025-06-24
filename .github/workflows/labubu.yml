@@ -1,0 +1,25 @@
+name: Labubu Watcher
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # 每10分钟运行一次
+  workflow_dispatch:
+
+jobs:
+  run-labubu:
+    runs-on: ubuntu-latest
+    env:
+      HTTP_PROXY: ${{ secrets.HTTP_PROXY }}   # 只影响 Puppeteer
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID }}
+      NODE_ENV: production
+      USE_PROXY: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: corepack enable
+      - run: yarn install
+      - run: chmod +x ./node_modules/.bin/ts-node || true
+      - run: npx ts-node src/jobs/run-all.ts
