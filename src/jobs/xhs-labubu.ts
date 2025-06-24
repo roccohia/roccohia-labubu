@@ -81,6 +81,32 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
         console.log('页面URL:', window.location.href);
         console.log('页面HTML长度:', document.documentElement.outerHTML.length);
         console.log('可能的帖子容器:', document.querySelectorAll('div[class*="note"], div[class*="item"], section').length);
+
+        // 尝试查找其他可能的选择器
+        const alternativeSelectors = [
+          '.note-item',
+          '.search-item',
+          '.feeds-item',
+          '.content-item',
+          '[class*="note"]',
+          '[class*="item"]',
+          '[class*="card"]'
+        ];
+
+        console.log('尝试其他选择器:');
+        for (const selector of alternativeSelectors) {
+          const count = document.querySelectorAll(selector).length;
+          console.log(`  ${selector}: ${count} 个元素`);
+        }
+
+        // 输出页面的主要结构
+        const bodyChildren = document.body.children;
+        console.log(`页面主要结构 (${bodyChildren.length} 个子元素):`);
+        for (let i = 0; i < Math.min(bodyChildren.length, 10); i++) {
+          const child = bodyChildren[i];
+          console.log(`  ${i}: <${child.tagName.toLowerCase()}> class="${child.className}" id="${child.id}"`);
+        }
+
         return posts;
       }
 
@@ -420,21 +446,71 @@ async function scrapeXiaohongshu(customLogger: LoggerInstance): Promise<Extracti
 
   try {
     customLogger.info('启动浏览器和代理');
-    ({ browser, page, proxy } = await launchWithRandomProxy());
 
-    if (proxy) {
-      customLogger.info(`使用代理: ${proxy.ip}:${proxy.port}`);
-    } else {
-      customLogger.warn('未配置代理，可能影响小红书访问');
+    try {
+      ({ browser, page, proxy } = await launchWithRandomProxy());
+
+      if (proxy) {
+        customLogger.info(`使用代理: ${proxy.ip}:${proxy.port}`);
+      } else {
+        customLogger.warn('未配置代理，可能影响小红书访问');
+      }
+    } catch (proxyError) {
+      customLogger.warn('代理启动失败，尝试直接连接:', proxyError);
+
+      // 备用方案：直接启动浏览器（无代理）
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--disable-features=TranslateUI',
+          '--disable-ipc-flooding-protection',
+          '--disable-background-networking',
+          '--disable-default-apps',
+          '--disable-extensions',
+          '--disable-sync',
+          '--disable-translate',
+          '--hide-scrollbars',
+          '--mute-audio',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--disable-gpu',
+          '--disable-software-rasterizer',
+          '--disable-blink-features=AutomationControlled',
+          '--disable-features=VizDisplayCompositor',
+          '--disable-infobars',
+          '--disable-web-security',
+          '--ignore-certificate-errors',
+          '--ignore-certificate-errors-spki-list',
+          '--window-size=1920,1080'
+        ],
+        ignoreDefaultArgs: ['--enable-automation'],
+        defaultViewport: null,
+        timeout: 30000
+      });
+
+      page = await browser.newPage();
+      proxy = null;
+
+      customLogger.info('使用直接连接模式（无代理）');
     }
 
-    // 设置代理认证
+    // 设置代理认证（如果有代理）
     if (proxy?.username && proxy?.password) {
       await page.authenticate({
         username: proxy.username,
         password: proxy.password
       });
       customLogger.debug('代理认证设置完成');
+    } else if (proxy) {
+      customLogger.debug('代理无需认证');
+    } else {
+      customLogger.debug('无代理模式，跳过认证设置');
     }
 
     // 加载 cookies
