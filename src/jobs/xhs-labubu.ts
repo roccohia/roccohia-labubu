@@ -112,41 +112,84 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
             }
           }
 
-          // 抓取发布时间
+          // 抓取发布时间 - 使用更精确的小红书选择器
           let publishTime = '';
           const timeSelectors = [
-            '.time',
+            '.footer .time',
+            '.note-time',
             '.publish-time',
             '.date',
+            '.time',
             '[class*="time"]',
-            '.footer .time',
-            '.note-time'
+            '[class*="date"]',
+            '.footer span:last-child',
+            '.footer > span',
+            '.note-item .footer span'
           ];
 
           for (const timeSelector of timeSelectors) {
             const timeElement = section.querySelector(timeSelector) as HTMLElement;
             if (timeElement && timeElement.innerText?.trim()) {
-              publishTime = timeElement.innerText.trim();
-              break;
+              const timeText = timeElement.innerText.trim();
+              // 验证是否看起来像时间格式
+              if (timeText.match(/\d+[分时天月年前]|ago|\d{1,2}[-/]\d{1,2}|\d{4}[-/]\d{1,2}[-/]\d{1,2}/)) {
+                publishTime = timeText;
+                console.log(`找到发布时间: ${publishTime} 使用选择器: ${timeSelector}`);
+                break;
+              }
             }
           }
 
-          // 抓取作者信息
+          // 如果没有找到时间，尝试从所有文本中提取
+          if (!publishTime) {
+            const allText = (section as HTMLElement).innerText || '';
+            const timePatterns = [
+              /(\d+分钟前)/,
+              /(\d+小时前)/,
+              /(\d+天前)/,
+              /(\d+月前)/,
+              /(\d+年前)/,
+              /(\d{1,2}-\d{1,2})/,
+              /(\d{4}-\d{1,2}-\d{1,2})/
+            ];
+
+            for (const pattern of timePatterns) {
+              const match = allText.match(pattern);
+              if (match) {
+                publishTime = match[1];
+                console.log(`从文本中提取时间: ${publishTime}`);
+                break;
+              }
+            }
+          }
+
+          // 抓取作者信息 - 使用更精确的小红书选择器
           let author = '';
           const authorSelectors = [
+            '.author-wrapper .author-name',
+            '.user-info .username',
             '.author',
             '.username',
             '.user-name',
             '.nickname',
             '[class*="author"]',
-            '[class*="user"]'
+            '[class*="user"]',
+            '.note-item .author',
+            '.footer .author'
           ];
 
           for (const authorSelector of authorSelectors) {
             const authorElement = section.querySelector(authorSelector) as HTMLElement;
             if (authorElement && authorElement.innerText?.trim()) {
-              author = authorElement.innerText.trim();
-              break;
+              const authorText = authorElement.innerText.trim();
+              // 过滤掉明显不是作者名的文本
+              if (authorText.length > 0 && authorText.length < 50 &&
+                  !authorText.includes('点赞') && !authorText.includes('收藏') &&
+                  !authorText.includes('分享') && !authorText.includes('评论')) {
+                author = authorText;
+                console.log(`找到作者: ${author} 使用选择器: ${authorSelector}`);
+                break;
+              }
             }
           }
 

@@ -254,16 +254,27 @@ async function processProductsSequentially(browser: any, statusCache: Record<str
       const result = await checkSingleProduct(page, url, statusCache);
       results.push({ status: 'fulfilled', value: result });
 
-      // 每个产品检查后等待一段时间，避免被检测（减少等待时间提高效率）
-      if (i < urls.length - 1) {
-        const waitTime = process.env.NODE_ENV === 'production' ? 3000 : 2000; // 生产环境稍微保守一些
-        console.log(`等待 ${waitTime/1000} 秒后检查下一个产品...`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-      }
-
     } catch (error) {
       console.error(`检查产品 ${url} 时出错:`, error);
       results.push({ status: 'rejected', reason: error });
+
+      // 保存调试信息
+      if (page) {
+        try {
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          await page.screenshot({
+            path: `debug-popmart-error-${timestamp}.png`,
+            fullPage: true
+          });
+
+          const html = await page.content();
+          require('fs').writeFileSync(`debug-popmart-error-${timestamp}.html`, html, 'utf-8');
+
+          console.log(`调试文件已保存: debug-popmart-error-${timestamp}.png/html`);
+        } catch (debugError) {
+          console.warn('保存调试文件失败:', debugError);
+        }
+      }
     } finally {
       if (page) {
         try {
@@ -272,6 +283,13 @@ async function processProductsSequentially(browser: any, statusCache: Record<str
           console.warn('关闭页面时出错:', closeError);
         }
       }
+    }
+
+    // 每个产品检查后等待一段时间，避免被检测（减少等待时间提高效率）
+    if (i < urls.length - 1) {
+      const waitTime = process.env.NODE_ENV === 'production' ? 3000 : 2000;
+      console.log(`等待 ${waitTime/1000} 秒后检查下一个产品...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
     }
   }
 
@@ -360,85 +378,148 @@ async function setupPageAntiDetection(page: any): Promise<void> {
   });
 }
 /**
- * 检查单个产品
+ * 检查单个产品 - 增强的错误处理和重试机制
  */
 async function checkSingleProduct(page: any, url: string, statusCache: Record<string, boolean>) {
-  try {
-    console.log(`\n==============================`);
-    console.log(`[INFO] 正在检查商品页面: ${url}`);
+  const maxRetries = 3;
+  let lastError: Error | null = null;
 
-    // 导航到产品页面，使用更保守的策略
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`\n==============================`);
+      console.log(`[INFO] 正在检查商品页面: ${url} (尝试 ${attempt}/${maxRetries})`);
+
+      // 重新创建页面上下文（如果不是第一次尝试）
+      if (attempt > 1) {
+        console.log(`[INFO] 第 ${attempt} 次尝试，重新初始化页面...`);
+        await page.close();
+        const browser = page.browser();
+        page = await browser.newPage();
+        await setupPageAntiDetection(page);
+      }
+
+      // 导航到产品页面，使用更保守的策略
+      await navigateToProductPage(page, url);
+
+      // 处理可能的 Cookie 弹窗
+      await handleCookiePopup(page);
+
+      // 等待关键元素加载
+      await waitForPageElements(page);
+
+      // 检查产品状态，使用更安全的方式
+      const { title, inStock } = await checkProductSafely(page, url);
+
+      // 如果成功获取到信息，处理结果
+      return await processProductResult(title, inStock, url, statusCache);
+
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`[ERROR] 第 ${attempt} 次尝试失败:`, lastError.message);
+
+      if (attempt < maxRetries) {
+        const waitTime = Math.pow(2, attempt) * 1000; // 指数退避
+        console.log(`[INFO] 等待 ${waitTime/1000} 秒后重试...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+  }
+
+  // 所有重试都失败了
+  console.error(`[ERROR] 检查商品 ${url} 失败，已达到最大重试次数`);
+  throw lastError || new Error('未知错误');
+}
+
+/**
+ * 安全地导航到产品页面
+ */
+async function navigateToProductPage(page: any, url: string): Promise<void> {
+  try {
+    // 设置页面事件监听器
+    page.on('framedetached', () => {
+      console.warn('[WARN] 检测到框架分离事件');
+    });
+
+    page.on('error', (error: Error) => {
+      console.warn('[WARN] 页面错误:', error.message);
+    });
+
+    // 导航到页面
     await page.goto(url, {
-      waitUntil: 'networkidle2',
-      timeout: 120000
+      waitUntil: 'domcontentloaded', // 改用更快的等待策略
+      timeout: 60000
     });
 
     // 等待页面稳定
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
-    // 处理可能的 Cookie 弹窗
-    await handleCookiePopup(page);
-
-    // 等待关键元素加载
-    try {
-      await page.waitForSelector('h1, .title, [class*="title"]', { timeout: 10000 });
-    } catch (error) {
-      console.warn('等待标题元素超时，继续执行');
-    }
-
-    // 再次等待确保页面完全加载
     await new Promise(resolve => setTimeout(resolve, 3000));
 
-    // 检查产品状态，使用更安全的方式
-    const { title, inStock } = await checkProductSafely(page, url);
-
-    // 检查状态是否发生变化
-    const previousStatus = statusCache[url];
-    if (previousStatus !== inStock) {
-      statusCache[url] = inStock;
-
-      if (inStock) {
-        console.log(`\x1b[32m[SUCCESS] ✅ 有货！\x1b[0m`);
-
-        // 发送补货通知
-        const message = formatStockMessage(title, url, true);
-        await sendTelegramMessage(message);
-      } else {
-        console.log(`\x1b[33m[INFO] ❌ 暂无库存\x1b[0m`);
-      }
-    } else {
-      console.log(`[INFO] 状态无变化 (${inStock ? '有货' : '缺货'})，跳过推送`);
+    // 验证页面是否正确加载
+    const currentUrl = await page.url();
+    if (!currentUrl.includes('popmart.com')) {
+      throw new Error(`页面导航失败，当前URL: ${currentUrl}`);
     }
 
-    // 输出商品信息
-    console.log(`商品：${title}`);
-    console.log(`链接：${url}`);
-    console.log(`状态：${inStock ? '有货' : '缺货'}`);
-    console.log(`==============================\n`);
-
-    return { title, inStock, url };
+    console.log(`[INFO] 成功导航到: ${currentUrl}`);
 
   } catch (error) {
-    console.error(`[ERROR] 检查商品 ${url} 时出错:`, error);
-
-    // 保存调试信息
-    try {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      await page.screenshot({
-        path: `debug-popmart-${timestamp}.png`,
-        fullPage: true
-      });
-
-      const html = await page.content();
-      require('fs').writeFileSync(`debug-popmart-${timestamp}.html`, html, 'utf-8');
-
-      console.log(`调试文件已保存: debug-popmart-${timestamp}.png/html`);
-    } catch (debugError) {
-      console.warn('保存调试文件失败:', debugError);
-    }
-
+    console.error('[ERROR] 页面导航失败:', error);
     throw error;
   }
+}
+
+/**
+ * 等待页面关键元素加载
+ */
+async function waitForPageElements(page: any): Promise<void> {
+  try {
+    // 等待多个可能的元素之一出现
+    await Promise.race([
+      page.waitForSelector('h1', { timeout: 15000 }),
+      page.waitForSelector('[class*="title"]', { timeout: 15000 }),
+      page.waitForSelector('.product-name', { timeout: 15000 }),
+      page.waitForSelector('body', { timeout: 15000 }) // 最后的备用选择器
+    ]);
+
+    console.log('[INFO] 页面关键元素已加载');
+
+    // 额外等待确保页面完全渲染
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+  } catch (error) {
+    console.warn('[WARN] 等待页面元素超时，继续执行:', error);
+  }
+}
+
+/**
+ * 处理产品检查结果
+ */
+async function processProductResult(title: string, inStock: boolean, url: string, statusCache: Record<string, boolean>) {
+
+  // 检查状态是否发生变化
+  const previousStatus = statusCache[url];
+  if (previousStatus !== inStock) {
+    statusCache[url] = inStock;
+
+    if (inStock) {
+      console.log(`\x1b[32m[SUCCESS] ✅ 有货！\x1b[0m`);
+
+      // 发送补货通知
+      const message = formatStockMessage(title, url, true);
+      await sendTelegramMessage(message);
+    } else {
+      console.log(`\x1b[33m[INFO] ❌ 暂无库存\x1b[0m`);
+    }
+  } else {
+    console.log(`[INFO] 状态无变化 (${inStock ? '有货' : '缺货'})，跳过推送`);
+  }
+
+  // 输出商品信息
+  console.log(`商品：${title}`);
+  console.log(`链接：${url}`);
+  console.log(`状态：${inStock ? '有货' : '缺货'}`);
+  console.log(`==============================\n`);
+
+  return { title, inStock, url };
 }
 
 /**
