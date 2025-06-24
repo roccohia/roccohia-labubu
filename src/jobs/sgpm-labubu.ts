@@ -14,8 +14,8 @@ async function handleCookiePopup(page: any): Promise<void> {
   try {
     console.log('[INFO] 检查 Cookie 弹窗...');
 
-    // 等待页面稳定
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // 等待页面稳定（减少等待时间）
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     const cookieSelectors = [
       'div[class*="policy_acceptBtn"]',
@@ -182,6 +182,8 @@ export async function runSgpmJob(): Promise<void> {
  * 启动优化的浏览器实例
  */
 async function launchOptimizedBrowser() {
+  const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+
   const optimizedArgs = [
     '--no-sandbox',
     '--disable-setuid-sandbox',
@@ -211,6 +213,20 @@ async function launchOptimizedBrowser() {
     '--window-size=1920,1080'
   ];
 
+  // GitHub Actions 环境的特殊配置
+  if (isGitHubActions) {
+    optimizedArgs.push(
+      '--disable-features=VizDisplayCompositor',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-features=site-per-process',
+      '--single-process', // 在 CI 环境中使用单进程模式
+      '--no-zygote'
+    );
+    console.log('[INFO] 检测到 GitHub Actions 环境，使用特殊配置');
+  }
+
   return await puppeteer.launch({
     headless: true,
     args: optimizedArgs,
@@ -238,10 +254,11 @@ async function processProductsSequentially(browser: any, statusCache: Record<str
       const result = await checkSingleProduct(page, url, statusCache);
       results.push({ status: 'fulfilled', value: result });
 
-      // 每个产品检查后等待一段时间，避免被检测
+      // 每个产品检查后等待一段时间，避免被检测（减少等待时间提高效率）
       if (i < urls.length - 1) {
-        console.log(`等待 5 秒后检查下一个产品...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        const waitTime = process.env.NODE_ENV === 'production' ? 3000 : 2000; // 生产环境稍微保守一些
+        console.log(`等待 ${waitTime/1000} 秒后检查下一个产品...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
       }
 
     } catch (error) {
@@ -357,13 +374,20 @@ async function checkSingleProduct(page: any, url: string, statusCache: Record<st
     });
 
     // 等待页面稳定
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
     // 处理可能的 Cookie 弹窗
     await handleCookiePopup(page);
 
+    // 等待关键元素加载
+    try {
+      await page.waitForSelector('h1, .title, [class*="title"]', { timeout: 10000 });
+    } catch (error) {
+      console.warn('等待标题元素超时，继续执行');
+    }
+
     // 再次等待确保页面完全加载
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     // 检查产品状态，使用更安全的方式
     const { title, inStock } = await checkProductSafely(page, url);
@@ -484,9 +508,23 @@ async function checkProductSafely(page: any, url: string): Promise<{ title: stri
           if (!title) {
             // 从页面标题获取，并清理
             const pageTitle = document.title || '';
-            title = pageTitle.replace(/\s*\|\s*POPMART.*$/i, '').trim() || 'Unknown Product';
-            console.log(`使用页面标题: ${title}`);
+            title = pageTitle.replace(/\s*\|\s*POPMART.*$/i, '').trim();
+            console.log(`页面标题: "${pageTitle}", 清理后: "${title}"`);
+
+            // 如果页面标题也没有有用信息，从 URL 提取
+            if (!title || title === 'POPMART' || title.length < 3) {
+              const urlParts = window.location.pathname.split('/');
+              const productPart = urlParts[urlParts.length - 1];
+              title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Unknown Product';
+              console.log(`从URL提取标题: ${title}`);
+            }
           }
+
+          // 记录页面的基本信息用于调试
+          console.log(`页面URL: ${window.location.href}`);
+          console.log(`页面标题: ${document.title}`);
+          console.log(`页面就绪状态: ${document.readyState}`);
+          console.log(`页面HTML长度: ${document.documentElement.outerHTML.length}`);
 
           // 检查库存状态 - 使用更精确的 PopMart 特定逻辑
           let inStock = false;

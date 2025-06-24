@@ -17,6 +17,8 @@ puppeteer.use(StealthPlugin());
 interface PostData {
   url: string;
   previewTitle: string;
+  publishTime?: string;
+  author?: string;
 }
 
 /**
@@ -110,6 +112,44 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
             }
           }
 
+          // 抓取发布时间
+          let publishTime = '';
+          const timeSelectors = [
+            '.time',
+            '.publish-time',
+            '.date',
+            '[class*="time"]',
+            '.footer .time',
+            '.note-time'
+          ];
+
+          for (const timeSelector of timeSelectors) {
+            const timeElement = section.querySelector(timeSelector) as HTMLElement;
+            if (timeElement && timeElement.innerText?.trim()) {
+              publishTime = timeElement.innerText.trim();
+              break;
+            }
+          }
+
+          // 抓取作者信息
+          let author = '';
+          const authorSelectors = [
+            '.author',
+            '.username',
+            '.user-name',
+            '.nickname',
+            '[class*="author"]',
+            '[class*="user"]'
+          ];
+
+          for (const authorSelector of authorSelectors) {
+            const authorElement = section.querySelector(authorSelector) as HTMLElement;
+            if (authorElement && authorElement.innerText?.trim()) {
+              author = authorElement.innerText.trim();
+              break;
+            }
+          }
+
           if (linkElement && titleElement && titleElement.innerText.trim()) {
             const url = linkElement.href.startsWith('http')
               ? linkElement.href
@@ -117,7 +157,9 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
 
             posts.push({
               url,
-              previewTitle: titleElement.innerText.trim()
+              previewTitle: titleElement.innerText.trim(),
+              publishTime: publishTime || '时间未知',
+              author: author || '作者未知'
             });
           }
         } catch (error) {
@@ -162,9 +204,24 @@ export async function runLabubuJob(customLogger: LoggerInstance = logger, debugM
       customLogger.info('[DEBUG] 调试模式，使用模拟数据');
       extractionResult = {
         posts: [
-          { url: 'https://www.xiaohongshu.com/post/1', previewTitle: 'Labubu 补货啦！速来 sg' },
-          { url: 'https://www.xiaohongshu.com/post/2', previewTitle: '无关内容' },
-          { url: 'https://www.xiaohongshu.com/post/3', previewTitle: '新加坡 labubu 突击！' },
+          {
+            url: 'https://www.xiaohongshu.com/post/1',
+            previewTitle: 'Labubu 补货啦！速来 sg',
+            publishTime: '2小时前',
+            author: '新加坡购物达人'
+          },
+          {
+            url: 'https://www.xiaohongshu.com/post/2',
+            previewTitle: '无关内容',
+            publishTime: '1天前',
+            author: '普通用户'
+          },
+          {
+            url: 'https://www.xiaohongshu.com/post/3',
+            previewTitle: '新加坡 labubu 突击！',
+            publishTime: '30分钟前',
+            author: 'Labubu收藏家'
+          },
         ],
         success: true
       };
@@ -385,6 +442,8 @@ function formatTelegramMessage(post: PostData): string {
   return `🚨 <b>小红书关键词新帖</b>
 
 <b>📝 标题：</b>${post.previewTitle}
+<b>👤 作者：</b>${post.author || '未知'}
+<b>📅 发布时间：</b>${post.publishTime || '时间未知'}
 <b>🔗 直达链接：</b><a href="${post.url}">点击查看</a>
 <b>⏰ 推送时间：</b>${timestamp}`;
 }
