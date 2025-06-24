@@ -565,116 +565,104 @@ function formatStockMessage(title: string, url: string, inStock: boolean): strin
 }
 
 /**
- * 安全地检查产品状态 - 使用多种方法避免框架分离问题
+ * 安全地检查产品状态 - 使用最简单的方法避免框架分离问题
  */
 async function checkProductSafely(page: any, url: string): Promise<{ title: string; inStock: boolean }> {
   console.log('[INFO] 开始安全检查产品状态');
 
-  let pageContent = '';
-  let pageTitle = '';
-  let currentUrl = '';
+  // 在 GitHub Actions 环境中使用更简单的方法
+  const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
 
-  // 方法1: 尝试直接获取页面信息
-  try {
-    console.log('[INFO] 尝试方法1: 直接获取页面信息');
-    await new Promise(resolve => setTimeout(resolve, 3000));
+  if (isGitHubActions) {
+    console.log('[INFO] GitHub Actions 环境，使用简化方法');
 
-    pageContent = await page.content();
-    pageTitle = await page.title();
-    currentUrl = await page.url();
+    // 等待页面稳定
+    await new Promise(resolve => setTimeout(resolve, 8000));
 
-    console.log(`✓ 方法1成功 - 页面标题: ${pageTitle}`);
-    console.log(`✓ 当前URL: ${currentUrl}`);
-    console.log(`✓ 页面内容长度: ${pageContent.length}`);
+    try {
+      // 尝试获取页面URL，如果成功说明页面可用
+      const currentUrl = await page.url();
+      console.log(`✓ 页面URL: ${currentUrl}`);
 
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.log(`✗ 方法1失败: ${errorMessage}`);
+      // 从URL提取产品信息，这是最稳定的方法
+      const urlParts = url.split('/');
+      const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
+      let title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
-    // 如果是框架分离错误，尝试重新创建页面
-    if (errorMessage.includes('detached Frame')) {
-      console.log('[INFO] 检测到框架分离，尝试重新创建页面...');
+      // 尝试获取页面标题作为补充
       try {
-        const browser = page.browser();
-        await page.close();
-        page = await browser.newPage();
-        await setupPageAntiDetection(page);
-
-        // 重新导航到页面
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        // 再次尝试获取内容
-        pageContent = await page.content();
-        pageTitle = await page.title();
-        currentUrl = await page.url();
-
-        console.log(`✓ 页面重建成功 - 页面标题: ${pageTitle}`);
-        console.log(`✓ 当前URL: ${currentUrl}`);
-        console.log(`✓ 页面内容长度: ${pageContent.length}`);
-
-      } catch (rebuildError) {
-        console.log(`✗ 页面重建失败: ${rebuildError instanceof Error ? rebuildError.message : String(rebuildError)}`);
-
-        // 方法3: 从URL提取基本信息
-        console.log('[INFO] 使用方法3: 从URL提取基本信息');
-        const urlParts = url.split('/');
-        const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
-        const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
-        return {
-          title: title,
-          inStock: false // 默认为缺货
-        };
+        const pageTitle = await page.title();
+        if (pageTitle && pageTitle !== 'POPMART' && pageTitle.length > title.length) {
+          title = pageTitle.replace(/\s*\|\s*POPMART.*$/i, '').trim();
+        }
+        console.log(`✓ 页面标题: ${pageTitle}`);
+      } catch (titleError) {
+        console.log('获取页面标题失败，使用URL提取的标题');
       }
-    } else {
-      // 方法2: 使用evaluate获取基本信息
-      try {
-        console.log('[INFO] 尝试方法2: 使用evaluate获取基本信息');
 
-        const basicInfo = await page.evaluate(() => {
-          return {
-            title: document.title || '',
-            url: window.location.href || '',
-            bodyText: document.body ? document.body.innerText.substring(0, 5000) : '',
-            htmlLength: document.documentElement ? document.documentElement.outerHTML.length : 0
-          };
+      // 在 GitHub Actions 中，默认认为是缺货（保守策略）
+      // 只有明确检测到有货时才返回 true
+      let inStock = false;
+
+      try {
+        // 尝试简单的页面内容检查
+        const hasAddToCart = await page.evaluate(() => {
+          const buttons = document.querySelectorAll('button');
+          for (const button of buttons) {
+            const text = button.textContent?.toLowerCase() || '';
+            if (text.includes('add to cart') || text.includes('add to bag')) {
+              return !button.disabled && !button.classList.contains('disabled');
+            }
+          }
+          return false;
         });
 
-        pageTitle = basicInfo.title;
-        currentUrl = basicInfo.url;
-        pageContent = `<html><head><title>${basicInfo.title}</title></head><body>${basicInfo.bodyText}</body></html>`;
-
-        console.log(`✓ 方法2成功 - 页面标题: ${pageTitle}`);
-        console.log(`✓ 当前URL: ${currentUrl}`);
-        console.log(`✓ 页面文本长度: ${basicInfo.bodyText.length}`);
-
-      } catch (error2) {
-        console.log(`✗ 方法2失败: ${error2 instanceof Error ? error2.message : String(error2)}`);
-
-        // 方法3: 从URL提取基本信息
-        console.log('[INFO] 使用方法3: 从URL提取基本信息');
-        const urlParts = url.split('/');
-        const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
-        const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
-        return {
-          title: title,
-          inStock: false // 默认为缺货
-        };
+        if (hasAddToCart) {
+          inStock = true;
+          console.log('✓ 检测到可用的添加到购物车按钮');
+        } else {
+          console.log('✗ 未检测到可用的添加到购物车按钮');
+        }
+      } catch (stockError) {
+        console.log('库存检查失败，默认为缺货');
       }
+
+      return { title, inStock };
+
+    } catch (error) {
+      console.log(`GitHub Actions 简化方法失败: ${error instanceof Error ? error.message : String(error)}`);
+
+      // 最后的备用方案
+      const urlParts = url.split('/');
+      const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
+      const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+      return {
+        title: title,
+        inStock: false
+      };
     }
   }
 
-  // 从获取的内容中提取产品信息
+  // 本地环境使用原来的方法
   try {
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    const pageContent = await page.content();
+    const pageTitle = await page.title();
+    const currentUrl = await page.url();
+
+    console.log(`✓ 页面标题: ${pageTitle}`);
+    console.log(`✓ 当前URL: ${currentUrl}`);
+    console.log(`✓ 页面内容长度: ${pageContent.length}`);
+
     const result = extractProductInfoFromHTML(pageContent, pageTitle, url);
     console.log(`✓ 产品信息提取结果:`, result);
     return result;
-  } catch (extractError) {
-    console.error('[ERROR] 产品信息提取失败:', extractError);
 
-    // 最后的备用方案
+  } catch (error) {
+    console.log(`本地方法失败: ${error instanceof Error ? error.message : String(error)}`);
+
     const urlParts = url.split('/');
     const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
     const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());

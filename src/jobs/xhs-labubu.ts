@@ -422,6 +422,12 @@ async function scrapeXiaohongshu(customLogger: LoggerInstance): Promise<Extracti
     customLogger.info('启动浏览器和代理');
     ({ browser, page, proxy } = await launchWithRandomProxy());
 
+    if (proxy) {
+      customLogger.info(`使用代理: ${proxy.ip}:${proxy.port}`);
+    } else {
+      customLogger.warn('未配置代理，可能影响小红书访问');
+    }
+
     // 设置代理认证
     if (proxy?.username && proxy?.password) {
       await page.authenticate({
@@ -438,14 +444,26 @@ async function scrapeXiaohongshu(customLogger: LoggerInstance): Promise<Extracti
     const searchUrl = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(xhsConfig.searchKeyword)}`;
     customLogger.info(`导航到搜索页: ${xhsConfig.searchKeyword}`);
 
-    await page.goto(searchUrl, {
-      waitUntil: 'networkidle2',
-      timeout: 60000
-    });
+    try {
+      await page.goto(searchUrl, {
+        waitUntil: 'networkidle2',
+        timeout: 60000
+      });
+      customLogger.info('页面导航成功');
+    } catch (navError) {
+      customLogger.error('页面导航失败:', navError);
+      throw navError;
+    }
 
     // 等待页面加载完成
     customLogger.debug('等待页面内容加载');
     await new Promise(resolve => setTimeout(resolve, 8000));
+
+    // 检查页面状态
+    const currentUrl = await page.url();
+    const pageTitle = await page.title();
+    customLogger.info(`当前页面URL: ${currentUrl}`);
+    customLogger.info(`页面标题: ${pageTitle}`);
 
     // 尝试滚动加载更多内容
     await scrollToLoadMore(page, customLogger);
