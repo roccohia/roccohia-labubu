@@ -1,0 +1,56 @@
+[
+  {
+    "name": "web_session",
+    "value": "040069b5cc8f6d012c76d00e613a4b58beb65d",
+    "domain": ".xiaohongshu.com",
+    "path": "/"
+  },
+  {
+    "name": "websectiga",
+    "value": "8886be45f388a1ee7bf611a69f3e174cae48f1ea02c0f8ec3256031b8be9c7ee",
+    "domain": ".xiaohongshu.com",
+    "path": "/"
+  },
+  {
+    "name": "webBuild",
+    "value": "4.68.0",
+    "domain": ".xiaohongshu.com",
+    "path": "/"
+  },
+  {
+    "name": "webId",
+    "value": "cbb95996114c672da0b29c8b0dda88bd",
+    "domain": ".xiaohongshu.com",
+    "path": "/"
+  },
+  {
+    "name": "xsecappid",
+    "value": "xhs-pc-w",
+    "domain": ".xiaohongshu.com",
+    "path": "/"
+  },
+  {
+    "name": "acw_tc",
+    "value": "0a00d77517506124049478948e9faab30859f4f7769bd03ae19dc194052fea",
+    "domain": "www.xiaohongshu.com",
+    "path": "/"
+  },
+  {
+    "name": "acw_tc",
+    "value": "0a4a88f517506124059598471e1f779deebe7635d0f0edc0243935a92e7df0",
+    "domain": "edith.xiaohongshu.com",
+    "path": "/"
+  },
+  {
+    "name": "gid",
+    "value": "yjWYjq48Y2iSyjWYjqqi4hhiSJK22WI48jFMMM67yvW1CK288iWWkv888q8yy8j8q2Jj8K4q",
+    "domain": ".xiaohongshu.com",
+    "path": "/"
+  },
+  {
+    "name": "sec_poison_id",
+    "value": "b6b1c744-4bb7-4fb4-9dbd-12372d56812f",
+    "domain": ".xiaohongshu.com",
+    "path": "/"
+  }
+] 

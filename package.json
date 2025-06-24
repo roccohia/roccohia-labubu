@@ -1,0 +1,33 @@
+{
+  "packageManager": "yarn@4.9.2",
+  "name": "labubu_watcher",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "run:xhs": "npx ts-node src/jobs/xhs-labubu.ts",
+    "debug:xhs": "npx ts-node src/jobs/xhs-labubu.ts --debug",
+    "run:sgpm": "npx ts-node src/jobs/sgpm-labubu.ts",
+    "debug:sgpm": "npx ts-node src/jobs/sgpm-labubu.ts --debug",
+    "run:all": "npx ts-node src/jobs/run-all.ts",
+    "debug:all": "npx ts-node src/jobs/run-all.ts --debug",
+    "start": "node -r ts-node/register src/jobs/run-all.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-fetch": "^2.7.0",
+    "puppeteer": "^21.3.8",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.3",
+    "@types/node-fetch": "^2.6.12"
+  }
+}
