@@ -558,203 +558,124 @@ function formatStockMessage(title: string, url: string, inStock: boolean): strin
 }
 
 /**
- * 安全地检查产品状态，避免执行上下文被销毁的问题
+ * 安全地检查产品状态 - 完全重写以避免框架分离问题
  */
 async function checkProductSafely(page: any, url: string): Promise<{ title: string; inStock: boolean }> {
-  let retries = 3;
+  console.log('[INFO] 开始安全检查产品状态');
 
-  while (retries > 0) {
-    try {
-      // 检查页面是否仍然可用
-      try {
-        await page.evaluate(() => document.readyState);
-      } catch (evalError) {
-        throw new Error('页面上下文不可用');
-      }
+  // 使用更简单的方法，避免复杂的页面操作
+  try {
+    // 等待页面完全加载
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
-      // 简化的元素等待，避免框架分离问题
-      try {
-        await page.waitForSelector('body', { timeout: 5000 });
-      } catch (selectorError) {
-        console.warn('等待 body 元素失败，继续尝试获取信息');
-      }
+    // 获取页面内容，而不是使用复杂的选择器
+    const pageContent = await page.content();
+    const pageTitle = await page.title();
+    const currentUrl = await page.url();
 
-      // 尝试获取产品信息
-      const result = await page.evaluate(() => {
-        try {
-          // 获取产品标题 - 使用更精确的选择器
-          let title = '';
-          const titleSelectors = [
-            'h1[class*="index_title"]',  // PopMart 特定的标题选择器
-            'h1.product-title',
-            '.product-name',
-            'h1',
-            '.title',
-            '[data-testid="product-title"]',
-            '.product-detail-title',
-            '.item-title'
-          ];
+    console.log(`页面标题: ${pageTitle}`);
+    console.log(`当前URL: ${currentUrl}`);
+    console.log(`页面内容长度: ${pageContent.length}`);
 
-          for (const selector of titleSelectors) {
-            const element = document.querySelector(selector);
-            if (element && element.textContent?.trim()) {
-              title = element.textContent.trim();
-              console.log(`找到标题使用选择器: ${selector}, 标题: ${title}`);
-              break;
-            }
-          }
+    // 从页面内容中提取信息
+    const result = extractProductInfoFromHTML(pageContent, pageTitle, url);
 
-          if (!title) {
-            // 从页面标题获取，并清理
-            const pageTitle = document.title || '';
-            title = pageTitle.replace(/\s*\|\s*POPMART.*$/i, '').trim();
-            console.log(`页面标题: "${pageTitle}", 清理后: "${title}"`);
+    console.log(`产品信息提取结果:`, result);
+    return result;
 
-            // 如果页面标题也没有有用信息，从 URL 提取
-            if (!title || title === 'POPMART' || title.length < 3) {
-              const urlParts = window.location.pathname.split('/');
-              const productPart = urlParts[urlParts.length - 1];
-              title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Unknown Product';
-              console.log(`从URL提取标题: ${title}`);
-            }
-          }
+  } catch (error) {
+    console.error('[ERROR] 安全检查产品状态失败:', error);
 
-          // 记录页面的基本信息用于调试
-          console.log(`页面URL: ${window.location.href}`);
-          console.log(`页面标题: ${document.title}`);
-          console.log(`页面就绪状态: ${document.readyState}`);
-          console.log(`页面HTML长度: ${document.documentElement.outerHTML.length}`);
+    // 返回从URL提取的基本信息
+    const urlParts = url.split('/');
+    const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
+    const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
-          // 检查库存状态 - 使用更精确的 PopMart 特定逻辑
-          let inStock = false;
+    return {
+      title: title,
+      inStock: false // 默认为缺货
+    };
+  }
+}
 
-          // 1. 检查添加到购物车按钮
-          const addToCartSelectors = [
-            'button[class*="index_addToCartBtn"]',  // PopMart 特定的添加按钮
-            'button[data-testid="add-to-cart"]',
-            '.add-to-cart',
-            '.btn-add-cart',
-            '.product-add-btn',
-            'button[class*="addCart"]'
-          ];
+/**
+ * 从HTML内容中提取产品信息
+ */
+function extractProductInfoFromHTML(html: string, pageTitle: string, url: string): { title: string; inStock: boolean } {
+  console.log('[INFO] 从HTML内容中提取产品信息');
 
-          for (const selector of addToCartSelectors) {
-            const button = document.querySelector(selector);
-            if (button) {
-              const isDisabled = button.hasAttribute('disabled') ||
-                               button.classList.contains('disabled') ||
-                               window.getComputedStyle(button).pointerEvents === 'none';
+  // 提取产品标题
+  let title = '';
 
-              if (!isDisabled) {
-                console.log(`找到可用的添加按钮: ${selector}`);
-                inStock = true;
-                break;
-              } else {
-                console.log(`找到但已禁用的按钮: ${selector}`);
-              }
-            }
-          }
-
-          // 2. 检查缺货相关的文本和元素
-          const outOfStockSelectors = [
-            '[class*="soldOut"]',
-            '[class*="outOfStock"]',
-            '.notify-me',
-            '.sold-out'
-          ];
-
-          for (const selector of outOfStockSelectors) {
-            const element = document.querySelector(selector);
-            if (element) {
-              console.log(`找到缺货元素: ${selector}`);
-              inStock = false;
-              break;
-            }
-          }
-
-          // 3. 检查缺货文本
-          const outOfStockTexts = [
-            'out of stock',
-            'sold out',
-            'unavailable',
-            'notify me when available',
-            '缺货',
-            '售罄',
-            'notify me'
-          ];
-
-          const pageText = document.body.textContent?.toLowerCase() || '';
-          const foundOutOfStockText = outOfStockTexts.find(text =>
-            pageText.includes(text.toLowerCase())
-          );
-
-          if (foundOutOfStockText) {
-            console.log(`找到缺货文本: ${foundOutOfStockText}`);
-            inStock = false;
-          }
-
-          // 4. 检查价格是否存在
-          const priceSelectors = [
-            '[class*="index_price"]',  // PopMart 特定的价格选择器
-            '.price',
-            '.product-price',
-            '[data-testid="price"]',
-            '.cost',
-            '.amount'
-          ];
-
-          let hasPrice = false;
-          let priceText = '';
-          for (const selector of priceSelectors) {
-            const priceElement = document.querySelector(selector);
-            if (priceElement && priceElement.textContent) {
-              priceText = priceElement.textContent;
-              if (priceText.includes('$') || priceText.includes('S$')) {
-                hasPrice = true;
-                console.log(`找到价格: ${priceText} 使用选择器: ${selector}`);
-                break;
-              }
-            }
-          }
-
-          // 5. 综合判断库存状态
-          console.log(`库存判断 - 有添加按钮: ${inStock}, 有价格: ${hasPrice}, 页面文本包含缺货: ${!!foundOutOfStockText}`);
-
-          // 如果没有明确的缺货标识，且有价格，则认为有货
-          if (!foundOutOfStockText && hasPrice) {
-            inStock = true;
-          }
-
-          return { title, inStock };
-        } catch (error) {
-          console.error('页面评估出错:', error);
-          return { title: 'Error getting title', inStock: false };
-        }
-      });
-
-      console.log(`产品信息获取成功: ${result.title}, 库存: ${result.inStock ? '有货' : '缺货'}`);
-      return result;
-
-    } catch (error) {
-      retries--;
-      console.warn(`获取产品信息失败，剩余重试次数: ${retries}`, error);
-
-      if (retries > 0) {
-        // 重新加载页面
-        try {
-          await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
-          await new Promise(resolve => setTimeout(resolve, 3000));
-        } catch (reloadError) {
-          console.warn('页面重新加载失败:', reloadError);
-        }
-      }
-    }
+  // 从页面标题提取
+  if (pageTitle && pageTitle !== 'POPMART') {
+    title = pageTitle.replace(/\s*\|\s*POPMART.*$/i, '').trim();
   }
 
-  // 所有重试都失败了，返回默认值
-  console.error(`无法获取产品信息: ${url}`);
-  return { title: 'Failed to get product info', inStock: false };
+  // 如果页面标题没有有用信息，从URL提取
+  if (!title || title.length < 3) {
+    const urlParts = url.split('/');
+    const productPart = urlParts[urlParts.length - 1] || '';
+    title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  }
+
+  // 检查库存状态
+  let inStock = false;
+
+  // 检查HTML中的关键词
+  const htmlLower = html.toLowerCase();
+
+  // 缺货关键词
+  const outOfStockKeywords = [
+    'out of stock',
+    'sold out',
+    'unavailable',
+    'notify me when available',
+    'notify me',
+    'coming soon'
+  ];
+
+  const hasOutOfStockKeyword = outOfStockKeywords.some(keyword =>
+    htmlLower.includes(keyword)
+  );
+
+  // 有货关键词
+  const inStockKeywords = [
+    'add to cart',
+    'add to bag',
+    'buy now',
+    'purchase',
+    'in stock'
+  ];
+
+  const hasInStockKeyword = inStockKeywords.some(keyword =>
+    htmlLower.includes(keyword)
+  );
+
+  // 价格检查
+  const hasPricePattern = /\$\d+|\$\s*\d+|s\$\d+|s\$\s*\d+/i.test(html);
+
+  // 综合判断
+  if (hasOutOfStockKeyword) {
+    inStock = false;
+    console.log('[INFO] 检测到缺货关键词');
+  } else if (hasInStockKeyword && hasPricePattern) {
+    inStock = true;
+    console.log('[INFO] 检测到有货关键词和价格');
+  } else if (hasPricePattern) {
+    inStock = true;
+    console.log('[INFO] 检测到价格，推测有货');
+  } else {
+    inStock = false;
+    console.log('[INFO] 未检测到明确的库存信息，默认为缺货');
+  }
+
+  console.log(`最终结果 - 标题: ${title}, 库存: ${inStock ? '有货' : '缺货'}`);
+
+  return { title, inStock };
 }
+
+
 
 // CLI 入口
 if (require.main === module) {

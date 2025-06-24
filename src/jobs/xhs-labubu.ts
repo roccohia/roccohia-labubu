@@ -58,7 +58,9 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
         '.note-item',
         '.note-card',
         '[data-testid="note-item"]',
-        '.feeds-page .note-item'
+        '.feeds-page .note-item',
+        '.search-item',
+        '.note-list .item'
       ];
 
       // 尝试多种选择器
@@ -73,6 +75,11 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
 
       if (!elements || elements.length === 0) {
         console.warn('未找到任何帖子元素');
+        // 输出页面的基本信息用于调试
+        console.log('页面标题:', document.title);
+        console.log('页面URL:', window.location.href);
+        console.log('页面HTML长度:', document.documentElement.outerHTML.length);
+        console.log('可能的帖子容器:', document.querySelectorAll('div[class*="note"], div[class*="item"], section').length);
         return posts;
       }
 
@@ -112,9 +119,10 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
             }
           }
 
-          // 抓取发布时间 - 使用更精确的小红书选择器
+          // 抓取发布时间 - 使用更全面的小红书选择器和调试
           let publishTime = '';
           const timeSelectors = [
+            'span.date',  // 从你提供的HTML中看到的选择器
             '.footer .time',
             '.note-time',
             '.publish-time',
@@ -124,18 +132,36 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
             '[class*="date"]',
             '.footer span:last-child',
             '.footer > span',
-            '.note-item .footer span'
+            '.note-item .footer span',
+            '.footer .desc',
+            '.desc',
+            '.meta',
+            '.info',
+            '.note-meta',
+            'span[class*="date"]',
+            'div[class*="date"]'
           ];
+
+          // 记录调试信息
+          console.log(`开始查找时间信息，帖子标题: ${titleElement?.innerText?.trim()}`);
 
           for (const timeSelector of timeSelectors) {
             const timeElement = section.querySelector(timeSelector) as HTMLElement;
             if (timeElement && timeElement.innerText?.trim()) {
               const timeText = timeElement.innerText.trim();
+              console.log(`检查选择器 ${timeSelector}: "${timeText}"`);
+
               // 验证是否看起来像时间格式
-              if (timeText.match(/\d+[分时天月年前]|ago|\d{1,2}[-/]\d{1,2}|\d{4}[-/]\d{1,2}[-/]\d{1,2}/)) {
+              if (timeText.match(/\d+[分时天月年前]|ago|\d{1,2}[-/]\d{1,2}|\d{4}[-/]\d{1,2}[-/]\d{1,2}|昨天|今天|前天|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}/)) {
                 publishTime = timeText;
-                console.log(`找到发布时间: ${publishTime} 使用选择器: ${timeSelector}`);
+                console.log(`✓ 找到发布时间: ${publishTime} 使用选择器: ${timeSelector}`);
                 break;
+              }
+
+              // 特殊处理：如果包含数字和"w"（可能是浏览量），跳过
+              if (timeText.match(/\d+\.?\d*w/)) {
+                console.log(`跳过浏览量数据: ${timeText}`);
+                continue;
               }
             }
           }
@@ -143,24 +169,39 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
           // 如果没有找到时间，尝试从所有文本中提取
           if (!publishTime) {
             const allText = (section as HTMLElement).innerText || '';
+            console.log(`未找到时间元素，从全文本中搜索: "${allText.substring(0, 200)}..."`);
+
             const timePatterns = [
               /(\d+分钟前)/,
               /(\d+小时前)/,
               /(\d+天前)/,
               /(\d+月前)/,
               /(\d+年前)/,
+              /(昨天)/,
+              /(今天)/,
+              /(前天)/,
               /(\d{1,2}-\d{1,2})/,
-              /(\d{4}-\d{1,2}-\d{1,2})/
+              /(\d{4}-\d{1,2}-\d{1,2})/,
+              /(\d{1,2}:\d{2})/,
+              /(\d{4}年\d{1,2}月\d{1,2}日)/,
+              /(\d{1,2}月\d{1,2}日)/,
+              /(刚刚)/,
+              /(\d+秒前)/
             ];
 
             for (const pattern of timePatterns) {
               const match = allText.match(pattern);
               if (match) {
                 publishTime = match[1];
-                console.log(`从文本中提取时间: ${publishTime}`);
+                console.log(`✓ 从文本中提取时间: ${publishTime}`);
                 break;
               }
             }
+          }
+
+          // 如果还是没找到，输出调试信息
+          if (!publishTime) {
+            console.log(`❌ 未找到时间信息，帖子HTML:`, section.outerHTML.substring(0, 500));
           }
 
           // 抓取作者信息 - 使用更精确的小红书选择器
