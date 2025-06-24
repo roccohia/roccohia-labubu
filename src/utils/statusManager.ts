@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { Logger } from './logger';
+import { LoggerInstance } from './logger';
 
 /**
  * 一个通用的状态管理器，用于处理JSON文件的读写和更新。
@@ -10,12 +10,12 @@ import { Logger } from './logger';
 export class StatusManager<T> {
   private filePath: string;
   private backupPath: string;
-  private logger: Logger;
+  private logger: LoggerInstance;
   private data: T;
   private saveTimeout: NodeJS.Timeout | null = null;
   private readonly maxBackups: number = 3;
 
-  constructor(filePath: string, logger: Logger, initialData: T) {
+  constructor(filePath: string, logger: LoggerInstance, initialData: T) {
     this.filePath = filePath;
     this.backupPath = `${filePath}.backup`;
     this.logger = logger;

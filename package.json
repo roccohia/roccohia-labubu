@@ -1,5 +1,4 @@
 {
-  "packageManager": "yarn@4.9.2",
   "name": "labubu_watcher",
   "version": "1.0.0",
   "main": "index.js",

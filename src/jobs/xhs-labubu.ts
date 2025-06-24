@@ -2,7 +2,7 @@
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { sendTelegramMessage } from '../utils/sendTelegramMessage';
-import { logger, Logger } from '../utils/logger';
+import { logger, LoggerInstance } from '../utils/logger';
 import fs from 'fs';
 import { xhsConfig } from '../config';
 import { launchWithRandomProxy } from '../utils/proxyLauncher';
@@ -149,7 +149,7 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
  * @param customLogger - 自定义日志记录器
  * @param debugMode - 调试模式
  */
-export async function runLabubuJob(customLogger: Logger = logger, debugMode = false): Promise<void> {
+export async function runLabubuJob(customLogger: LoggerInstance = logger, debugMode = false): Promise<void> {
   const startTime = Date.now();
   customLogger.info('=== 开始执行小红书 Labubu 监控任务 ===');
 
@@ -194,7 +194,7 @@ export async function runLabubuJob(customLogger: Logger = logger, debugMode = fa
  * @param customLogger - 日志记录器
  * @returns 抓取结果
  */
-async function scrapeXiaohongshu(customLogger: Logger): Promise<ExtractionResult> {
+async function scrapeXiaohongshu(customLogger: LoggerInstance): Promise<ExtractionResult> {
   let browser, page, proxy;
 
   try {
@@ -224,7 +224,7 @@ async function scrapeXiaohongshu(customLogger: Logger): Promise<ExtractionResult
 
     // 等待页面加载完成
     customLogger.debug('等待页面内容加载');
-    await page.waitForTimeout(8000);
+    await new Promise(resolve => setTimeout(resolve, 8000));
 
     // 尝试滚动加载更多内容
     await scrollToLoadMore(page, customLogger);
@@ -256,7 +256,7 @@ async function scrapeXiaohongshu(customLogger: Logger): Promise<ExtractionResult
  * @param page - 页面对象
  * @param customLogger - 日志记录器
  */
-async function loadCookies(page: Page, customLogger: Logger): Promise<void> {
+async function loadCookies(page: Page, customLogger: LoggerInstance): Promise<void> {
   try {
     if (fs.existsSync(xhsConfig.cookiesFile)) {
       const cookiesData = fs.readFileSync(xhsConfig.cookiesFile, 'utf-8');
@@ -281,7 +281,7 @@ async function loadCookies(page: Page, customLogger: Logger): Promise<void> {
  * @param page - 页面对象
  * @param customLogger - 日志记录器
  */
-async function scrollToLoadMore(page: Page, customLogger: Logger): Promise<void> {
+async function scrollToLoadMore(page: Page, customLogger: LoggerInstance): Promise<void> {
   try {
     customLogger.debug('开始滚动加载更多内容');
 
@@ -289,7 +289,7 @@ async function scrollToLoadMore(page: Page, customLogger: Logger): Promise<void>
       await page.evaluate(() => {
         window.scrollTo(0, document.body.scrollHeight);
       });
-      await page.waitForTimeout(2000);
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     customLogger.debug('滚动加载完成');
@@ -309,7 +309,7 @@ async function processExtractedPosts(
   posts: PostData[],
   seenPosts: string[],
   seenPostsManager: StatusManager<string[]>,
-  customLogger: Logger
+  customLogger: LoggerInstance
 ): Promise<void> {
   if (posts.length === 0) {
     customLogger.info('未抓取到任何帖子');
@@ -400,7 +400,7 @@ async function updateSeenPosts(
   newPosts: string[],
   currentSeenPosts: string[],
   seenPostsManager: StatusManager<string[]>,
-  customLogger: Logger
+  customLogger: LoggerInstance
 ): Promise<void> {
   try {
     const maxSeenPosts = xhsConfig.maxSeenPosts || 500;
@@ -421,7 +421,6 @@ async function updateSeenPosts(
     customLogger.error('更新已发送帖子列表失败', error);
     throw error;
   }
-}
 }
 
 // CLI 入口

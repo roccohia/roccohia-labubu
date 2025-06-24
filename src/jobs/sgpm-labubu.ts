@@ -156,7 +156,7 @@ async function launchOptimizedBrowser() {
   ];
 
   return await puppeteer.launch({
-    headless: 'new',
+    headless: true,
     args: optimizedArgs,
     ignoreDefaultArgs: ['--enable-automation'],
     defaultViewport: null,
@@ -229,8 +229,8 @@ async function setupPageAntiDetection(page: any): Promise<void> {
     Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
 
     // 伪造 chrome 对象
-    if (!window.chrome) {
-      window.chrome = {
+    if (!(window as any).chrome) {
+      (window as any).chrome = {
         runtime: {},
         loadTimes: function() {},
         csi: function() {},
@@ -252,21 +252,10 @@ async function setupPageAntiDetection(page: any): Promise<void> {
     Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });
 
     // 伪装时区（新加坡时区 UTC+8）
-    const originalDate = Date;
-    class MockDate extends originalDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) {
-          super();
-        } else {
-          super(...args);
-        }
-      }
-
-      getTimezoneOffset() {
-        return -480; // UTC+8
-      }
-    }
-    window.Date = MockDate as any;
+    const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset;
+    Date.prototype.getTimezoneOffset = function() {
+      return -480; // UTC+8 新加坡时区
+    };
   });
 }
 /**

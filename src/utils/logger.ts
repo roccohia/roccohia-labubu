@@ -50,4 +50,4 @@ export class Logger {
 export const logger = new Logger();
 
 // 保持向后兼容的类型定义
-export type LoggerType = Logger;
+export type LoggerInstance = Logger;

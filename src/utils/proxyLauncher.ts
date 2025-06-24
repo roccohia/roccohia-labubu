@@ -98,7 +98,7 @@ async function tryLaunchWithProxy(proxy: ProxyConfig, headless: boolean | 'new' 
     console.log(`尝试启动浏览器 [代理: ${proxy.ip}:${proxy.port}]`);
 
     const browser = await puppeteer.launch({
-      headless: headless,
+      headless: headless === 'new' ? true : headless,
       args: optimizedArgs,
       ignoreDefaultArgs: ['--enable-automation'],
       defaultViewport: null,
@@ -177,15 +177,15 @@ async function enhanceAntiDetection(page: Page): Promise<void> {
 
       // 伪造 permissions
       const originalQuery = window.navigator.permissions.query;
-      window.navigator.permissions.query = (parameters) => (
+      window.navigator.permissions.query = (parameters: any) => (
         parameters.name === 'notifications' ?
-          Promise.resolve({ state: Notification.permission }) :
+          Promise.resolve({ state: Notification.permission } as any) :
           originalQuery(parameters)
       );
 
       // 伪造 chrome 对象
-      if (!window.chrome) {
-        window.chrome = {
+      if (!(window as any).chrome) {
+        (window as any).chrome = {
           runtime: {},
           loadTimes: function() {},
           csi: function() {},
