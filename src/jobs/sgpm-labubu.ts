@@ -404,7 +404,7 @@ async function checkSingleProduct(page: any, url: string, statusCache: Record<st
       // 处理可能的 Cookie 弹窗
       await handleCookiePopup(page);
 
-      // 等待关键元素加载
+      // 等待关键元素加载（如果失败不影响后续流程）
       await waitForPageElements(page);
 
       // 检查产品状态，使用更安全的方式
@@ -468,25 +468,35 @@ async function navigateToProductPage(page: any, url: string): Promise<void> {
 }
 
 /**
- * 等待页面关键元素加载
+ * 等待页面关键元素加载 - 增强的错误处理
  */
 async function waitForPageElements(page: any): Promise<void> {
   try {
-    // 等待多个可能的元素之一出现
-    await Promise.race([
-      page.waitForSelector('h1', { timeout: 15000 }),
-      page.waitForSelector('[class*="title"]', { timeout: 15000 }),
-      page.waitForSelector('.product-name', { timeout: 15000 }),
-      page.waitForSelector('body', { timeout: 15000 }) // 最后的备用选择器
-    ]);
+    // 首先检查页面是否仍然可用
+    await page.evaluate(() => document.readyState);
 
-    console.log('[INFO] 页面关键元素已加载');
+    // 使用更短的超时时间，避免长时间等待分离的框架
+    const shortTimeout = 5000;
 
-    // 额外等待确保页面完全渲染
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // 尝试等待元素，但不强制要求成功
+    try {
+      await Promise.race([
+        page.waitForSelector('h1', { timeout: shortTimeout }),
+        page.waitForSelector('[class*="title"]', { timeout: shortTimeout }),
+        page.waitForSelector('.product-name', { timeout: shortTimeout }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), shortTimeout))
+      ]);
+      console.log('[INFO] 页面关键元素已加载');
+    } catch (elementError) {
+      console.warn('[WARN] 等待特定元素失败，使用通用等待策略');
+      // 如果特定元素等待失败，只是简单等待一段时间
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
 
   } catch (error) {
-    console.warn('[WARN] 等待页面元素超时，继续执行:', error);
+    console.warn('[WARN] 页面元素等待过程中出错，继续执行:', error instanceof Error ? error.message : String(error));
+    // 即使出错也要等待一段时间确保页面稳定
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
 }
 
@@ -556,10 +566,18 @@ async function checkProductSafely(page: any, url: string): Promise<{ title: stri
   while (retries > 0) {
     try {
       // 检查页面是否仍然可用
-      await page.evaluate(() => document.readyState);
+      try {
+        await page.evaluate(() => document.readyState);
+      } catch (evalError) {
+        throw new Error('页面上下文不可用');
+      }
 
-      // 等待关键元素加载
-      await page.waitForSelector('body', { timeout: 10000 });
+      // 简化的元素等待，避免框架分离问题
+      try {
+        await page.waitForSelector('body', { timeout: 5000 });
+      } catch (selectorError) {
+        console.warn('等待 body 元素失败，继续尝试获取信息');
+      }
 
       // 尝试获取产品信息
       const result = await page.evaluate(() => {

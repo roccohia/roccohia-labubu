@@ -198,6 +198,14 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
               ? linkElement.href
               : `https://www.xiaohongshu.com${linkElement.href}`;
 
+            // 调试信息
+            console.log(`提取帖子信息:`, {
+              title: titleElement.innerText.trim(),
+              publishTime: publishTime || '时间未知',
+              author: author || '作者未知',
+              url: url
+            });
+
             posts.push({
               url,
               previewTitle: titleElement.innerText.trim(),
@@ -268,6 +276,8 @@ export async function runLabubuJob(customLogger: LoggerInstance = logger, debugM
         ],
         success: true
       };
+
+      customLogger.debug('调试模式帖子数据', extractionResult.posts);
     } else {
       extractionResult = await scrapeXiaohongshu(customLogger);
     }
@@ -482,11 +492,14 @@ function formatTelegramMessage(post: PostData): string {
     second: '2-digit'
   });
 
+  const author = post.author && post.author !== '作者未知' ? post.author : '未知作者';
+  const publishTime = post.publishTime && post.publishTime !== '时间未知' ? post.publishTime : '时间未知';
+
   return `🚨 <b>小红书关键词新帖</b>
 
 <b>📝 标题：</b>${post.previewTitle}
-<b>👤 作者：</b>${post.author || '未知'}
-<b>📅 发布时间：</b>${post.publishTime || '时间未知'}
+<b>👤 作者：</b>${author}
+<b>📅 发布时间：</b>${publishTime}
 <b>🔗 直达链接：</b><a href="${post.url}">点击查看</a>
 <b>⏰ 推送时间：</b>${timestamp}`;
 }
