@@ -86,8 +86,8 @@ function saveStatusCache(file: string, data: Record<string, boolean>) {
 
 // 主流程
 export async function runSgpmJob() {
-  // 始终使用 headless: 'new'，避免浏览器窗口弹出
-  const browser = await puppeteer.launch({ headless: 'new' });
+  // 始终使用 headless: 'new'，并加 --no-sandbox 避免云端报错
+  const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
   const firstPage = await browser.newPage();
   const statusCache = loadStatusCache(sgpmConfig.statusFile);
   for (let i = 0; i < sgpmConfig.productUrls.length; i++) {

@@ -9,6 +9,7 @@ jobs:
   run-labubu:
     runs-on: ubuntu-latest
     env:
+      PUPPETEER_DOWNLOAD_HOST: 'https://npmmirror.com/mirrors/chromium'
       HTTP_PROXY: ${{ secrets.HTTP_PROXY }}   # 只影响 Puppeteer
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -20,6 +21,16 @@ jobs:
         with:
           node-version: 20
       - run: corepack enable
-      - run: yarn install
+      - name: Cache node modules and puppeteer chromium
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.cache/yarn
+            ~/.cache/puppeteer
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+      - run: yarn install --frozen-lockfile
       - run: chmod +x ./node_modules/.bin/ts-node || true
       - run: npx ts-node src/jobs/run-all.ts
