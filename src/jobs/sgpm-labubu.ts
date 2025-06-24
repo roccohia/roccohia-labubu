@@ -1,8 +1,11 @@
 #!/usr/bin/env ts-node
 import { sgpmConfig } from '../config'
-import puppeteer from 'puppeteer'
+import puppeteer from 'puppeteer-extra'
+import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import { sendTelegramMessage } from '../utils/sendTelegramMessage'
 import { launchWithRandomProxy } from '../utils/proxyLauncher'
+
+puppeteer.use(StealthPlugin())
 
 // 只在每个页面检测并点击 Cookie 弹窗
 async function handleCookiePopup(page: any) {
@@ -83,52 +86,84 @@ function saveStatusCache(file: string, data: Record<string, boolean>) {
 
 // 主流程
 export async function runSgpmJob() {
-  const { browser, page: firstPage, proxy } = await launchWithRandomProxy();
+  // 始终使用 headless: 'new'，避免浏览器窗口弹出
+  const browser = await puppeteer.launch({ headless: 'new' });
+  const firstPage = await browser.newPage();
   const statusCache = loadStatusCache(sgpmConfig.statusFile);
-  const results: Promise<void>[] = [];
   for (let i = 0; i < sgpmConfig.productUrls.length; i++) {
     const url = sgpmConfig.productUrls[i];
-    results.push((async () => {
-      const page = i === 0 ? firstPage : await browser.newPage();
-      if (proxy && proxy.username && proxy.password) {
-        await page.authenticate({ username: proxy.username, password: proxy.password });
-      }
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-      await page.evaluateOnNewDocument(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => false });
-      });
-      try {
-        console.log(`\n==============================`);
-        console.log(`[INFO] 正在检查商品页面: ${url}`);
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-        await handleCookiePopup(page); // 每个页面都处理
-        const { title, inStock } = await checkProduct(page, url);
-        if (statusCache[url] !== inStock) {
-          statusCache[url] = inStock;
-          saveStatusCache(sgpmConfig.statusFile, statusCache);
-          if (inStock) {
-            console.log(`\x1b[32m[SUCCESS] ✅ 有货！\x1b[0m`);
-            // 推送到 Telegram
-            const msg = `\uD83D\uDEA8 <b>PopMart 补货提醒</b>\n\n<b>商品：</b>${title}\n<b>链接：</b><a href=\"${url}\">${url}</a>\n<b>状态：</b><b>有货！</b>\n<b>时间：</b>${new Date().toLocaleString()}`;
-            await sendTelegramMessage(msg);
+    const page = i === 0 ? firstPage : await browser.newPage();
+    // 极致伪装：设置真实 UA、语言、时区、分辨率等
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setViewport({ width: 1920, height: 1080 });
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+      Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+      Object.defineProperty(navigator, 'language', { get: () => 'zh-CN' });
+      Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+      (window as any).chrome = { runtime: {} };
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      Object.defineProperty(screen, 'width', { get: () => 1920 });
+      Object.defineProperty(screen, 'height', { get: () => 1080 });
+      Object.defineProperty(screen, 'availWidth', { get: () => 1920 });
+      Object.defineProperty(screen, 'availHeight', { get: () => 1040 });
+      Object.defineProperty(screen, 'colorDepth', { get: () => 24 });
+      Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });
+      // 伪装时区
+      const date = Date;
+      class NewDate extends date {
+        constructor(...args: any[]) {
+          if (args.length === 0) {
+            super();
+            (this as any).getTimezoneOffset = () => -480;
           } else {
-            console.log(`\x1b[33m[INFO] ❌ 暂无库存\x1b[0m`);
+            // @ts-ignore
+            super(...(args as [any]));
           }
-        } else {
-          console.log(`[INFO] 状态无变化，跳过推送`);
         }
-        console.log(`商品：${title}`);
-        console.log(`链接：${url}`);
-        console.log(`状态：${inStock ? '有货' : '缺货'}`);
-        console.log(`==============================\n`);
-      } catch (e: any) {
-        console.error(`[ERROR] 检查商品 ${url} 时出错: ${e.message}`);
-      } finally {
-        await page.close();
       }
-    })());
+      (window as any).Date = NewDate;
+    });
+    // 启用所有 Stealth evasions（已自动生效）
+    // 添加常用浏览器启动参数（已在 proxyLauncher.ts 内 args 设置）
+    try {
+      console.log(`\n==============================`);
+      console.log(`[INFO] 正在检查商品页面: ${url}`);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+      // 只在第一个页面检测并关闭 Cookie 弹窗
+      if (i === 0) {
+        await handleCookiePopup(page);
+      }
+      const { title, inStock } = await checkProduct(page, url);
+      if (statusCache[url] !== inStock) {
+        statusCache[url] = inStock;
+        saveStatusCache(sgpmConfig.statusFile, statusCache);
+        if (inStock) {
+          console.log(`\x1b[32m[SUCCESS] ✅ 有货！\x1b[0m`);
+          // 推送到 Telegram
+          const msg = `\uD83D\uDEA8 <b>PopMart 补货提醒</b>\n\n<b>商品：</b>${title}\n<b>链接：</b><a href=\"${url}\">${url}</a>\n<b>状态：</b><b>有货！</b>\n<b>时间：</b>${new Date().toLocaleString()}`;
+          await sendTelegramMessage(msg);
+        } else {
+          console.log(`\x1b[33m[INFO] ❌ 暂无库存\x1b[0m`);
+        }
+      } else {
+        console.log(`[INFO] 状态无变化，跳过推送`);
+      }
+      console.log(`商品：${title}`);
+      console.log(`链接：${url}`);
+      console.log(`状态：${inStock ? '有货' : '缺货'}`);
+      console.log(`==============================\n`);
+    } catch (e: any) {
+      await page.screenshot({ path: `debug-popmart-${i}.png` });
+      const html = await page.content();
+      require('fs').writeFileSync(`debug-popmart-${i}.html`, html, 'utf-8');
+      console.error(`[ERROR] 检查商品 ${url} 时出错: ${e.message}`);
+    } finally {
+      await page.close();
+    }
   }
-  await Promise.all(results);
   await browser.close();
   console.log('[INFO] 浏览器已关闭');
 }

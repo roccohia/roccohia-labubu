@@ -34,7 +34,7 @@ const backupProxies: ProxyConfig[] = [
   // { ip: '备用IP', port: 12345, username: 'user', password: 'pass' },
 ];
 
-async function tryLaunchWithProxy(proxy: ProxyConfig): Promise<{ browser: Browser, page: Page, proxy: ProxyConfig } | null> {
+async function tryLaunchWithProxy(proxy: ProxyConfig, headless: boolean | 'new' = 'new'): Promise<{ browser: Browser, page: Page, proxy: ProxyConfig } | null> {
   let args = [
     '--no-sandbox',
     '--disable-setuid-sandbox',
@@ -47,32 +47,30 @@ async function tryLaunchWithProxy(proxy: ProxyConfig): Promise<{ browser: Browse
     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
   ];
   try {
-    const browser = await puppeteer.launch({ headless: 'new', args });
+    const browser = await puppeteer.launch({ headless, args });
     const page = await browser.newPage();
     if (proxy.username && proxy.password) {
       await page.authenticate({ username: proxy.username, password: proxy.password });
     }
-    // 可选：测试代理连通性（如需更快可注释）
-    await page.goto('https://www.google.com', { timeout: 15000 });
+    // 谨慎修正：注释掉检测网址，避免因目标站点反爬导致代理全部被判为不可用
+    // await page.goto('https://www.popmart.com/sg', { timeout: 15000 });
     return { browser, page, proxy };
   } catch (e) {
     return null;
   }
 }
 
-export async function launchWithAutoProxy(): Promise<{ browser: Browser, page: Page, proxy: ProxyConfig }> {
-  // 先尝试主代理池
+export async function launchWithAutoProxy(options?: { headless?: boolean | 'new' }): Promise<{ browser: Browser, page: Page, proxy: ProxyConfig }> {
+  const headless = options?.headless ?? 'new';
   for (const proxy of mainProxies) {
-    const result = await tryLaunchWithProxy(proxy);
+    const result = await tryLaunchWithProxy(proxy, headless);
     if (result) return result;
   }
-  // 主代理池全部失败，尝试备用代理池
   for (const proxy of backupProxies) {
-    const result = await tryLaunchWithProxy(proxy);
+    const result = await tryLaunchWithProxy(proxy, headless);
     if (result) return result;
   }
   throw new Error('所有代理均不可用，请检查代理池配置');
 }
 
-// 兼容原有接口，直接调用自动切换
 export const launchWithRandomProxy = launchWithAutoProxy; 
