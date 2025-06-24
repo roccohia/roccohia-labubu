@@ -392,7 +392,11 @@ async function checkSingleProduct(page: any, url: string, statusCache: Record<st
       // 重新创建页面上下文（如果不是第一次尝试）
       if (attempt > 1) {
         console.log(`[INFO] 第 ${attempt} 次尝试，重新初始化页面...`);
-        await page.close();
+        try {
+          await page.close();
+        } catch (closeError) {
+          console.warn('关闭页面时出错:', closeError);
+        }
         const browser = page.browser();
         page = await browser.newPage();
         await setupPageAntiDetection(page);
@@ -581,42 +585,81 @@ async function checkProductSafely(page: any, url: string): Promise<{ title: stri
     console.log(`✓ 页面内容长度: ${pageContent.length}`);
 
   } catch (error) {
-    console.log(`✗ 方法1失败: ${error instanceof Error ? error.message : String(error)}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.log(`✗ 方法1失败: ${errorMessage}`);
 
-    // 方法2: 使用evaluate获取基本信息
-    try {
-      console.log('[INFO] 尝试方法2: 使用evaluate获取基本信息');
+    // 如果是框架分离错误，尝试重新创建页面
+    if (errorMessage.includes('detached Frame')) {
+      console.log('[INFO] 检测到框架分离，尝试重新创建页面...');
+      try {
+        const browser = page.browser();
+        await page.close();
+        page = await browser.newPage();
+        await setupPageAntiDetection(page);
 
-      const basicInfo = await page.evaluate(() => {
+        // 重新导航到页面
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        // 再次尝试获取内容
+        pageContent = await page.content();
+        pageTitle = await page.title();
+        currentUrl = await page.url();
+
+        console.log(`✓ 页面重建成功 - 页面标题: ${pageTitle}`);
+        console.log(`✓ 当前URL: ${currentUrl}`);
+        console.log(`✓ 页面内容长度: ${pageContent.length}`);
+
+      } catch (rebuildError) {
+        console.log(`✗ 页面重建失败: ${rebuildError instanceof Error ? rebuildError.message : String(rebuildError)}`);
+
+        // 方法3: 从URL提取基本信息
+        console.log('[INFO] 使用方法3: 从URL提取基本信息');
+        const urlParts = url.split('/');
+        const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
+        const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
         return {
-          title: document.title || '',
-          url: window.location.href || '',
-          bodyText: document.body ? document.body.innerText.substring(0, 5000) : '',
-          htmlLength: document.documentElement ? document.documentElement.outerHTML.length : 0
+          title: title,
+          inStock: false // 默认为缺货
         };
-      });
+      }
+    } else {
+      // 方法2: 使用evaluate获取基本信息
+      try {
+        console.log('[INFO] 尝试方法2: 使用evaluate获取基本信息');
 
-      pageTitle = basicInfo.title;
-      currentUrl = basicInfo.url;
-      pageContent = `<html><head><title>${basicInfo.title}</title></head><body>${basicInfo.bodyText}</body></html>`;
+        const basicInfo = await page.evaluate(() => {
+          return {
+            title: document.title || '',
+            url: window.location.href || '',
+            bodyText: document.body ? document.body.innerText.substring(0, 5000) : '',
+            htmlLength: document.documentElement ? document.documentElement.outerHTML.length : 0
+          };
+        });
 
-      console.log(`✓ 方法2成功 - 页面标题: ${pageTitle}`);
-      console.log(`✓ 当前URL: ${currentUrl}`);
-      console.log(`✓ 页面文本长度: ${basicInfo.bodyText.length}`);
+        pageTitle = basicInfo.title;
+        currentUrl = basicInfo.url;
+        pageContent = `<html><head><title>${basicInfo.title}</title></head><body>${basicInfo.bodyText}</body></html>`;
 
-    } catch (error2) {
-      console.log(`✗ 方法2失败: ${error2 instanceof Error ? error2.message : String(error2)}`);
+        console.log(`✓ 方法2成功 - 页面标题: ${pageTitle}`);
+        console.log(`✓ 当前URL: ${currentUrl}`);
+        console.log(`✓ 页面文本长度: ${basicInfo.bodyText.length}`);
 
-      // 方法3: 从URL提取基本信息
-      console.log('[INFO] 使用方法3: 从URL提取基本信息');
-      const urlParts = url.split('/');
-      const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
-      const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      } catch (error2) {
+        console.log(`✗ 方法2失败: ${error2 instanceof Error ? error2.message : String(error2)}`);
 
-      return {
-        title: title,
-        inStock: false // 默认为缺货
-      };
+        // 方法3: 从URL提取基本信息
+        console.log('[INFO] 使用方法3: 从URL提取基本信息');
+        const urlParts = url.split('/');
+        const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
+        const title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+        return {
+          title: title,
+          inStock: false // 默认为缺货
+        };
+      }
     }
   }
 

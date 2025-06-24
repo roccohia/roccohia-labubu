@@ -122,7 +122,11 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
           // 抓取发布时间 - 使用更全面的小红书选择器和调试
           let publishTime = '';
           const timeSelectors = [
-            'span.date',  // 从你提供的HTML中看到的选择器
+            'span[data-v-610be4fa][class="date"]',  // 精确匹配你提供的选择器
+            'span.date[selected-disabled-search]',  // 带属性的选择器
+            'span.date',  // 通用的 date 类选择器
+            'span[class="date"]',  // 精确类匹配
+            '[selected-disabled-search]',  // 通过特殊属性查找
             '.footer .time',
             '.note-time',
             '.publish-time',
@@ -151,8 +155,8 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
               const timeText = timeElement.innerText.trim();
               console.log(`检查选择器 ${timeSelector}: "${timeText}"`);
 
-              // 验证是否看起来像时间格式
-              if (timeText.match(/\d+[分时天月年前]|ago|\d{1,2}[-/]\d{1,2}|\d{4}[-/]\d{1,2}[-/]\d{1,2}|昨天|今天|前天|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}/)) {
+              // 验证是否看起来像时间格式，包含新的格式 "编辑于 06-15 新加坡"
+              if (timeText.match(/\d+[分时天月年前]|ago|\d{1,2}[-/]\d{1,2}|\d{4}[-/]\d{1,2}[-/]\d{1,2}|昨天|今天|前天|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}|编辑于\s*\d{2}-\d{2}|发布于|更新于/)) {
                 publishTime = timeText;
                 console.log(`✓ 找到发布时间: ${publishTime} 使用选择器: ${timeSelector}`);
                 break;
@@ -172,6 +176,9 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
             console.log(`未找到时间元素，从全文本中搜索: "${allText.substring(0, 200)}..."`);
 
             const timePatterns = [
+              /(编辑于\s*\d{2}-\d{2}[^0-9]*)/,  // 匹配 "编辑于 06-15 新加坡"
+              /(发布于\s*\d{2}-\d{2}[^0-9]*)/,  // 匹配 "发布于 XX-XX"
+              /(更新于\s*\d{2}-\d{2}[^0-9]*)/,  // 匹配 "更新于 XX-XX"
               /(\d+分钟前)/,
               /(\d+小时前)/,
               /(\d+天前)/,
