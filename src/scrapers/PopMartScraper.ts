@@ -182,21 +182,49 @@ export class PopMartScraper extends PageScraper {
       'purchase',
       'in stock',
       'available',
+      'pick one to shake',  // 新的盲盒抽取按钮
+      'shake',
+      'choose randomly',
+      'random',
       '加入购物车',
       '立即购买',
       '现货',
-      '有库存'
+      '有库存',
+      '抽取',
+      '随机选择'
     ];
 
-    const hasInStockIndicator = inStockIndicators.some(indicator => 
+    const hasInStockIndicator = inStockIndicators.some(indicator =>
       html.toLowerCase().includes(indicator.toLowerCase())
     );
 
+    // 特别检查新的盲盒页面格式
+    const hasShakeButton = html.includes('Pick One to Shake') ||
+                          html.includes('chooseRandomlyBtn') ||
+                          html.includes('ant-btn-primary');
+
+    // 检查价格信息（有价格通常表示有货）
+    const hasPricePattern = /\$\d+|\$\s*\d+|s\$\d+|s\$\s*\d+/i.test(html);
+
     // 判断库存状态
-    if (hasInStockIndicator && !hasOutOfStockIndicator) {
+    if (hasShakeButton) {
       inStock = true;
+      this.logger.info('检测到盲盒抽取按钮，判断为有货');
+    } else if (hasInStockIndicator && !hasOutOfStockIndicator) {
+      inStock = true;
+      this.logger.info('检测到有货指示器，判断为有货');
+    } else if (hasPricePattern && !hasOutOfStockIndicator) {
+      inStock = true;
+      this.logger.info('检测到价格信息且无缺货指示器，判断为有货');
+    } else if (hasOutOfStockIndicator) {
+      inStock = false;
+      this.logger.info('检测到缺货指示器，判断为缺货');
+    } else {
+      inStock = false;
+      this.logger.info('未检测到明确的库存信息，默认为缺货');
     }
 
+    this.logger.info(`最终库存状态: ${inStock ? '有货' : '缺货'}`);
     return { title, inStock };
   }
 
