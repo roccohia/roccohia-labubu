@@ -159,7 +159,8 @@ export class XhsMonitoringTask extends MonitoringTask {
    * 处理小红书帖子
    */
   private async processXhsPosts(posts: XhsPostData[]): Promise<void> {
-    const seenPosts = this.statusManager.get();
+    const seenPosts = this.statusManager.get() as string[];
+    const newlySeenPosts: string[] = []; // 临时数组，只记录成功推送的帖子
     let newPostCount = 0;
     let duplicateCount = 0;
 
@@ -194,14 +195,9 @@ export class XhsMonitoringTask extends MonitoringTask {
           await this.sendNotification(message);
 
           // 只有推送成功后才标记为已处理
-          seenPosts.push(post.url);
+          newlySeenPosts.push(post.url);
           newPostCount++;
           this.logger.info(`✅ 帖子推送成功，已记录到去重列表: ${post.previewTitle}`);
-
-          // 限制已处理帖子数量
-          if (seenPosts.length > this.config.maxSeenPosts) {
-            seenPosts.splice(0, seenPosts.length - this.config.maxSeenPosts);
-          }
         } catch (notificationError) {
           this.logger.error(`❌ 帖子推送失败，不记录到去重列表: ${post.previewTitle}`);
           // 推送失败时不记录到已处理列表，下次还会尝试推送
@@ -212,8 +208,21 @@ export class XhsMonitoringTask extends MonitoringTask {
       }
     }
 
-    // 保存状态
-    this.statusManager.set(seenPosts);
+    // 只有当有新的成功推送时才更新状态文件
+    if (newlySeenPosts.length > 0) {
+      const updatedSeenPosts = [...seenPosts, ...newlySeenPosts];
+
+      // 限制已处理帖子数量
+      if (updatedSeenPosts.length > this.config.maxSeenPosts) {
+        updatedSeenPosts.splice(0, updatedSeenPosts.length - this.config.maxSeenPosts);
+      }
+
+      // 保存状态
+      this.statusManager.set(updatedSeenPosts);
+      this.logger.info(`✅ 状态文件已更新，新增 ${newlySeenPosts.length} 个已处理帖子`);
+    } else {
+      this.logger.info(`📝 无新的成功推送，状态文件保持不变`);
+    }
 
     this.logger.info(`处理完成 - 总帖子: ${posts.length}, 关键词匹配: ${newPostCount + duplicateCount}, 新发送: ${newPostCount}, 重复: ${duplicateCount}`);
 
