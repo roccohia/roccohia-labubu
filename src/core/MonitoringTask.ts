@@ -461,9 +461,17 @@ export class PopMartMonitoringTask extends MonitoringTask {
           this.logDebug('GitHub Actions 环境：使用简化检查方法（避免框架分离）');
           result = await this.checkProductSimple(url);
         } else {
-          // 本地环境：为了测试准确性，也使用简化方法
-          this.logDebug('本地环境：使用简化检查方法（确保准确性）');
-          result = await this.checkProductSimple(url);
+          // 本地环境：使用完整检查方法获取真实商品信息
+          this.logDebug('本地环境：使用完整检查方法（获取真实商品信息）');
+          try {
+            // 导航到产品页面
+            await scraper.navigateToProduct(url);
+            // 检查产品状态
+            result = await scraper.checkProductStatus(url);
+          } catch (error) {
+            this.logDebug(`完整检查失败，使用简化方法: ${error}`);
+            result = await this.checkProductSimple(url);
+          }
         }
 
         // 获取之前的状态
@@ -553,11 +561,14 @@ export class PopMartMonitoringTask extends MonitoringTask {
     let inStock: boolean;
 
     if (url.includes('/pop-now/set/')) {
-      // 盲盒套装页面 - 通常是有货的
+      // 盲盒套装页面 - 需要检查实际状态，不能假设有货
       const setId = url.split('/').pop() || 'Unknown Set';
       title = `PopMart 盲盒套装 ${setId}`;
-      inStock = true; // 盲盒套装通常是有货的
-      this.logger.info('检测到盲盒套装页面，判断为有货');
+
+      // 重要：盲盒套装也可能是IN-APP PURCHASE ONLY状态，应该判断为缺货
+      // GitHub Actions环境下，为了避免误报，默认设置为缺货
+      inStock = false;
+      this.logger.info('检测到盲盒套装页面，使用保守策略判断为缺货（避免IN-APP PURCHASE ONLY误报）');
     } else if (url.includes('/products/')) {
       // 普通产品页面 - 从URL提取产品信息
       const urlParts = url.split('/');
