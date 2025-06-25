@@ -78,7 +78,7 @@ export class XhsScraper extends PageScraper {
     this.logger.info(`导航到搜索页: ${keyword}`);
 
     try {
-      await this.navigateToPage(searchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+      await this.navigateToPage(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
       this.logger.info('页面导航成功');
     } catch (navError) {
       this.logger.error('页面导航失败:', navError);
@@ -87,7 +87,7 @@ export class XhsScraper extends PageScraper {
 
     // 等待页面加载完成
     this.logger.debug('等待页面内容加载');
-    await this.waitForStable(8000);
+    await this.waitForStable(5000);
 
     // 检查页面状态
     const currentUrl = await this.getPageUrl();
@@ -103,11 +103,11 @@ export class XhsScraper extends PageScraper {
     this.logger.info('开始提取帖子数据');
 
     try {
-      // 设置提取超时时间（10分钟）
+      // 设置提取超时时间（3分钟）
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error('帖子提取超时（10分钟）'));
-        }, 10 * 60 * 1000);
+          reject(new Error('帖子提取超时（3分钟）'));
+        }, 3 * 60 * 1000);
       });
 
       return await Promise.race([
@@ -126,6 +126,8 @@ export class XhsScraper extends PageScraper {
   private logDebug(message: string): void {
     this.logger.debug(message);
   }
+
+
 
   /**
    * 内部帖子提取逻辑
@@ -326,8 +328,8 @@ export class XhsScraper extends PageScraper {
             continue;
           }
 
-          // 抓取时间信息
-          let publishTime = '待获取';
+          // 时间信息将在浏览器上下文外部基于URL ID提取
+          let publishTime = '待提取';
           debugInfo.push(`URL: ${url}`);
 
           // 抓取作者
@@ -390,26 +392,81 @@ export class XhsScraper extends PageScraper {
     }, selectedSelector);
 
     if (result) {
-      // 为所有帖子设置统一的时间格式
-      const now = new Date();
-      const timeString = now.toLocaleString('zh-CN', {
-        timeZone: 'Asia/Singapore',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-
+      // 为所有帖子设置基于URL的相对时间信息
+      // 从小红书帖子ID中提取时间信息（小红书ID包含时间戳信息）
       for (const post of result.posts) {
-        if (post.publishTime === '待获取') {
-          post.publishTime = `今日 ${timeString}`;
+        if (post.publishTime === '待提取') {
+          try {
+            // 从URL中提取帖子ID: /explore/6857c493000000001d00eb64
+            const urlMatch = post.url.match(/\/explore\/([a-f0-9]+)/);
+            if (urlMatch) {
+              const postId = urlMatch[1];
+              // 小红书ID的前8位是时间戳的十六进制表示
+              const timeHex = postId.substring(0, 8);
+              const timestamp = parseInt(timeHex, 16);
+
+              if (timestamp > 0) {
+                const postDate = new Date(timestamp * 1000);
+                const now = new Date();
+                const diffMs = now.getTime() - postDate.getTime();
+                const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                const diffDays = Math.floor(diffHours / 24);
+
+                if (diffDays === 0) {
+                  if (diffHours === 0) {
+                    post.publishTime = '刚刚';
+                  } else {
+                    post.publishTime = `${diffHours}小时前`;
+                  }
+                } else if (diffDays === 1) {
+                  post.publishTime = '昨天';
+                } else if (diffDays < 7) {
+                  post.publishTime = `${diffDays}天前`;
+                } else {
+                  const month = postDate.getMonth() + 1;
+                  const day = postDate.getDate();
+                  post.publishTime = `${month}-${day}`;
+                }
+              } else {
+                // 如果时间戳解析失败，使用当前时间
+                const now = new Date();
+                const timeString = now.toLocaleString('zh-CN', {
+                  timeZone: 'Asia/Singapore',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                });
+                post.publishTime = `今日 ${timeString}`;
+              }
+            } else {
+              // 如果URL格式不匹配，使用当前时间
+              const now = new Date();
+              const timeString = now.toLocaleString('zh-CN', {
+                timeZone: 'Asia/Singapore',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+              post.publishTime = `今日 ${timeString}`;
+            }
+          } catch (error) {
+            // 如果解析失败，使用当前时间
+            const now = new Date();
+            const timeString = now.toLocaleString('zh-CN', {
+              timeZone: 'Asia/Singapore',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+            post.publishTime = `今日 ${timeString}`;
+          }
         }
       }
 
-      this.logger.info(`已为 ${result.posts.length} 个帖子设置时间信息`);
-
-      // 注意：由于小红书的反爬虫机制，真实时间提取比较复杂
-      // 当前使用统一时间格式，如需真实时间可以考虑其他方案
+      this.logger.info(`成功提取 ${result.posts.length} 个帖子，已为所有帖子设置基于ID的相对时间信息`);
 
       // 输出调试信息（仅在本地环境）
       const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';

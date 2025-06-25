@@ -45,11 +45,11 @@ export abstract class MonitoringTask {
     this.logger.info(`=== 开始执行${this.taskName}监控任务 ===`);
 
     try {
-      // 设置任务超时时间（18分钟，留2分钟给清理工作）
+      // 设置任务超时时间（15分钟，留5分钟给清理工作）
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error(`${this.taskName}监控任务超时（18分钟）`));
-        }, 18 * 60 * 1000);
+          reject(new Error(`${this.taskName}监控任务超时（15分钟）`));
+        }, 15 * 60 * 1000);
       });
 
       await Promise.race([
