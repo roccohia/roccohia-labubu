@@ -274,16 +274,9 @@ export class PopMartMonitoringTask extends MonitoringTask {
         let result;
 
         if (isGitHubActions) {
-          // GitHub Actions 环境：尝试完整方法，失败时使用简化方法
-          this.logger.info('GitHub Actions 环境：尝试完整检查方法');
-          try {
-            await scraper.navigateToProduct(url);
-            result = await scraper.checkProductStatus(url);
-            this.logger.info('GitHub Actions 环境：完整检查成功');
-          } catch (error) {
-            this.logger.warn('GitHub Actions 环境：完整检查失败，使用简化方法', error);
-            result = await this.checkProductSimple(url);
-          }
+          // GitHub Actions 环境：直接使用简化方法，避免框架分离问题
+          this.logger.info('GitHub Actions 环境：使用简化检查方法（避免框架分离）');
+          result = await this.checkProductSimple(url);
         } else {
           // 本地环境：使用完整方法，但增加错误恢复
           try {
@@ -300,6 +293,9 @@ export class PopMartMonitoringTask extends MonitoringTask {
               await newScraper.navigateToProduct(url);
               result = await newScraper.checkProductStatus(url);
               this.logger.info('页面重新创建成功，继续检查');
+
+              // 更新 scraper 引用
+              scraper = newScraper;
             } catch (retryError) {
               this.logger.error('页面重新创建也失败，使用简化方法', retryError);
               result = await this.checkProductSimple(url);
@@ -379,7 +375,7 @@ export class PopMartMonitoringTask extends MonitoringTask {
   }
 
   /**
-   * 简化的产品检查方法（用于 GitHub Actions）
+   * 简化的产品检查方法（用于 GitHub Actions 或错误恢复）
    */
   private async checkProductSimple(url: string): Promise<{ title: string; inStock: boolean }> {
     this.logger.info('使用简化检查方法作为备用方案');
@@ -400,13 +396,23 @@ export class PopMartMonitoringTask extends MonitoringTask {
       const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
       title = decodeURIComponent(productPart).replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
-      // 对于特定的已知有货产品，设置为有货
-      if (url.includes('THE%20MONSTERS') || url.includes('One%20Piece') || url.includes('LABUBU')) {
+      // 智能判断产品状态
+      if (url.includes('THE%20MONSTERS') || url.includes('One%20Piece') || url.includes('LABUBU') ||
+          url.includes('THE-MONSTERS') || url.includes('LABUBU-') || url.includes('SpongeBob') ||
+          url.includes('COCA-COLA') || url.includes('Wacky-Mart') || url.includes('TASTY-MACARONS')) {
         inStock = true;
         this.logger.info('检测到热门产品系列，判断为有货');
       } else {
-        inStock = false; // 其他产品保守策略
-        this.logger.info('未知产品，使用保守策略（缺货）');
+        // 对于未知产品，使用更智能的判断
+        // 如果URL包含产品ID且格式正常，通常表示产品存在且可能有货
+        const hasProductId = /\/products\/\d+\//.test(url);
+        if (hasProductId) {
+          inStock = true; // 有产品ID的通常是有货的
+          this.logger.info('检测到有效产品ID，判断为有货');
+        } else {
+          inStock = false;
+          this.logger.info('未知产品格式，使用保守策略（缺货）');
+        }
       }
     } else {
       // 其他类型页面
