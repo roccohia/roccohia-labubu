@@ -21,6 +21,16 @@ async function main(): Promise<void> {
   const startTime = Date.now();
   logger.info('=== Labubu 监控系统启动 ===');
 
+  // GitHub Actions环境的绝对安全退出机制
+  const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+  if (isGitHubActions) {
+    // 5分钟后强制退出，无论任务是否完成
+    setTimeout(() => {
+      logger.warn('GitHub Actions环境：达到5分钟安全限制，强制退出');
+      process.exit(0);
+    }, 5 * 60 * 1000);
+  }
+
   try {
     // 1. 环境检查
     await performEnvironmentChecks();
@@ -35,6 +45,19 @@ async function main(): Promise<void> {
     // 4. 输出执行结果
     const duration = Date.now() - startTime;
     logger.success(`=== 监控系统执行完成，总耗时: ${duration}ms ===`);
+
+    // 5. 在GitHub Actions中立即强制退出，避免卡住
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+    if (isGitHubActions) {
+      logger.info('GitHub Actions环境：立即退出进程');
+      process.exit(0);
+    }
+
+    // 6. 本地环境给一点时间清理，然后退出
+    setTimeout(() => {
+      logger.debug('本地环境：延迟退出进程');
+      process.exit(0);
+    }, 1000);
 
   } catch (error) {
     logger.error('监控系统执行失败', error);
@@ -162,10 +185,16 @@ if (process.env.GITHUB_ACTIONS === 'true') {
 
 // 启动应用
 if (require.main === module) {
-  main().catch((error) => {
-    logger.error('应用启动失败:', error);
-    process.exit(1);
-  });
+  main()
+    .then(() => {
+      // 主函数成功完成，确保进程退出
+      logger.debug('主函数执行完成，准备退出进程');
+      process.exit(0);
+    })
+    .catch((error) => {
+      logger.error('应用启动失败:', error);
+      process.exit(1);
+    });
 }
 
 export { main };

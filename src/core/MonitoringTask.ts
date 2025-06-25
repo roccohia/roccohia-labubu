@@ -91,10 +91,30 @@ export abstract class MonitoringTask {
   protected abstract runMonitoring(): Promise<void>;
 
   /**
-   * 清理资源
+   * 清理资源（带超时保护）
    */
   protected async cleanup(): Promise<void> {
-    await this.browserManager.close();
+    try {
+      this.logger.debug('开始清理资源');
+
+      // 设置清理超时（GitHub Actions: 15秒，本地: 30秒）
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      const timeout = isGitHubActions ? 15000 : 30000;
+
+      await Promise.race([
+        this.browserManager.close(),
+        new Promise<void>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`资源清理超时（${timeout/1000}秒）`));
+          }, timeout);
+        })
+      ]);
+
+      this.logger.debug('资源清理完成');
+    } catch (error) {
+      this.logger.warn('资源清理失败:', error);
+      // 不抛出错误，避免影响主流程
+    }
   }
 
   /**

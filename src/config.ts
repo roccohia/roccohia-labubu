@@ -7,9 +7,26 @@ import { XhsConfig, SgpmConfig } from './types';
 export const xhsConfig: XhsConfig = {
   searchKeyword: 'labubu',
   matchKeywords: [
-    'labubu', 'LABUBU', 'Labubu', 'LaBuBu', '拉布布',
-    'sg', '新加坡', '🇸🇬', '补货', '发售', '突击',
-    'slabubu', 'sglabubu', 'sg-labubu', 'sg_labubu', 'sg labubu'
+      // 品牌与角色关键词
+  "labubu", "LABUBU", "Labubu", "LaBuBu", "拉布布",
+
+  // 国家/地区关键词
+  "sg", "SG", "新加坡", "Singapore", "🇸🇬",
+
+  // 补货 / 上新 / 抢购类关键词
+  "补货", "现货", "上新", "发售", "突击", "突袭", "到货", "预售", "抢购", "抽签", "发货", "开抢", "上架",
+
+  // 表示稀缺、热销的词
+  "限量", "限定", "爆款", "热卖", "官方", "独家", "带回", "入手",
+
+  // 泡泡玛特品牌及其组合
+  "popmart", "POP MART", "泡泡玛特", "泡泡", "泡玛",
+
+  // 拼写组合形式（提高命中率）
+  "sglabubu", "sg-labubu", "sg_labubu", "sg labubu",
+  "labubu sg", "拉布布 sg", "labubu🇸🇬", "🇸🇬labubu",
+  "labubu新加坡", "labubu 到货", "popmart sg", "sg popmart",
+  "labubu popmart", "popmart labubu"
   ],
   seenPostsFile: 'xhs-seen-posts.json',
   cookiesFile: 'xhs-cookies.json',
@@ -26,8 +43,7 @@ export const sgpmConfig: SgpmConfig = {
     'https://www.popmart.com/sg/products/1149/LABUBU-HIDE-AND-SEEK-IN-SINGAPORE-SERIES-Vinyl-Plush-Doll-Pendant',
     'https://www.popmart.com/sg/products/1712/THE-MONSTERS-COCA-COLA-SERIES-Vinyl-Face-Blind-Box',
     'https://www.popmart.com/sg/products/4123/LABUBU-THE-MONSTERS-TASTY-MACARONS-SERIES-Vinyl-Face-Blind-Box',
-    'https://www.popmart.com/sg/pop-now/set/141',
-    'https://www.popmart.com/sg/products/1740/THE%20MONSTERS%20%C3%97%20One%20Piece%20Series%20Figures'
+    'https://www.popmart.com/sg/pop-now/set/100'
   ],
   statusFile: 'sgpm-products-status.json',
 };
