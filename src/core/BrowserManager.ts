@@ -53,9 +53,9 @@ export class BrowserManager {
    */
   async launchDirect(): Promise<{ browser: Browser; page: Page }> {
     this.logger.info('使用直接连接模式（无代理）');
-    
+
     const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
-    
+
     const args = [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -89,8 +89,15 @@ export class BrowserManager {
       args.push(
         '--disable-features=site-per-process',
         '--single-process',
-        '--no-zygote'
+        '--no-zygote',
+        '--disable-dev-shm-usage',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--memory-pressure-off',
+        '--max_old_space_size=4096'
       );
+      this.logger.info('GitHub Actions 环境：使用增强稳定性配置');
     }
 
     this.browser = await puppeteer.launch({
@@ -102,6 +109,13 @@ export class BrowserManager {
     });
 
     this.page = await this.browser.newPage();
+
+    // 在 GitHub Actions 中设置更保守的页面配置
+    if (isGitHubActions) {
+      await this.page.setDefaultTimeout(10000);
+      await this.page.setDefaultNavigationTimeout(15000);
+    }
+
     return { browser: this.browser, page: this.page };
   }
 

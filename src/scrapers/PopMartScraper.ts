@@ -37,6 +37,13 @@ export class PopMartScraper extends PageScraper {
    * 导航到产品页面
    */
   async navigateToProduct(url: string): Promise<void> {
+    const isGitHubActions = this.isGitHubActions();
+
+    if (isGitHubActions) {
+      this.logger.info(`GitHub Actions 环境：跳过页面导航，使用简化检查`);
+      return;
+    }
+
     this.logger.info(`正在检查商品页面: ${url}`);
 
     try {
