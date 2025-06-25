@@ -7,6 +7,7 @@ import { XhsConfig, SgpmConfig } from './types';
 export const xhsConfig: XhsConfig = {
   searchKeyword: 'labubu',
   matchKeywords: [
+    'labubu', 'LABUBU', 'Labubu', 'LaBuBu', '拉布布',
     'sg', '新加坡', '🇸🇬', '补货', '发售', '突击',
     'slabubu', 'sglabubu', 'sg-labubu', 'sg_labubu', 'sg labubu'
   ],

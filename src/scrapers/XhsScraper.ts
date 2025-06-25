@@ -194,9 +194,18 @@ export class XhsScraper extends PageScraper {
   }
 
   /**
-   * 输出调试信息
+   * 输出调试信息（仅在本地环境）
    */
   private logDebugInfo(debugInfo: any): void {
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+    if (isGitHubActions) {
+      // GitHub Actions 环境：只输出关键信息
+      this.logger.info(`页面标题: ${debugInfo.pageTitle}`);
+      this.logger.info(`找到 ${debugInfo.selectorResults['section.note-item'] || 0} 个帖子`);
+      return;
+    }
+
+    // 本地环境：输出详细调试信息
     this.logger.info('=== 小红书页面调试信息 ===');
     this.logger.info(`页面标题: ${debugInfo.pageTitle}`);
     this.logger.info(`页面URL: ${debugInfo.pageUrl}`);
@@ -341,10 +350,13 @@ export class XhsScraper extends PageScraper {
     }, selectedSelector);
 
     if (result) {
-      // 输出调试信息
-      this.logger.info('=== 帖子提取调试信息 ===');
-      result.debugInfo.forEach((info: string) => this.logger.info(info));
-      
+      // 输出调试信息（仅在本地环境）
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      if (!isGitHubActions) {
+        this.logger.info('=== 帖子提取调试信息 ===');
+        result.debugInfo.forEach((info: string) => this.logger.info(info));
+      }
+
       return result.posts;
     }
 

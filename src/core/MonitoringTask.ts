@@ -13,11 +13,28 @@ export abstract class MonitoringTask {
   protected browserManager: BrowserManager;
   protected logger: LoggerInstance;
   protected taskName: string;
+  protected isGitHubActions: boolean;
 
   constructor(taskName: string, logger: LoggerInstance) {
     this.taskName = taskName;
     this.logger = logger;
     this.browserManager = new BrowserManager(logger);
+    this.isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+  }
+
+  /**
+   * 条件日志输出 - 在 GitHub Actions 中减少无用日志
+   */
+  protected logInfo(message: string, forceShow: boolean = false): void {
+    if (forceShow || !this.isGitHubActions) {
+      this.logger.info(message);
+    }
+  }
+
+  protected logDebug(message: string): void {
+    if (!this.isGitHubActions) {
+      this.logger.debug(message);
+    }
   }
 
   /**
@@ -102,14 +119,14 @@ export class XhsMonitoringTask extends MonitoringTask {
   }
 
   protected async runMonitoring(): Promise<void> {
-    this.logger.info('开始执行小红书监控');
-    this.logger.info('🚀 使用新架构完整实现 - 不是简化版本');
+    this.logInfo('开始执行小红书监控', true);
+    this.logDebug('🚀 使用新架构完整实现 - 不是简化版本');
 
     try {
       // 创建抓取器
-      this.logger.info('正在创建 XhsScraper 实例');
+      this.logDebug('正在创建 XhsScraper 实例');
       const scraper = new XhsScraper(this.browserManager.getPage(), this.logger);
-      this.logger.info('XhsScraper 实例创建成功');
+      this.logDebug('XhsScraper 实例创建成功');
 
       // 设置页面
       await scraper.setupPage();
@@ -118,12 +135,12 @@ export class XhsMonitoringTask extends MonitoringTask {
       await scraper.navigateToSearch(this.config.searchKeyword);
 
       // 提取帖子
-      this.logger.info('开始提取帖子数据');
+      this.logInfo('开始提取帖子数据', true);
       const posts = await scraper.extractPosts();
-      this.logger.info(`提取到 ${posts.length} 个帖子`);
+      this.logInfo(`提取到 ${posts.length} 个帖子`, true);
 
       if (posts.length === 0) {
-        this.logger.info('未抓取到任何帖子');
+        this.logInfo('未抓取到任何帖子', true);
         return;
       }
 
@@ -144,28 +161,30 @@ export class XhsMonitoringTask extends MonitoringTask {
     let newPostCount = 0;
     let duplicateCount = 0;
 
-    this.logger.info(`开始处理 ${posts.length} 个帖子，进行关键词匹配和去重`);
+    this.logInfo(`开始处理 ${posts.length} 个帖子，进行关键词匹配和去重`, true);
 
     for (const post of posts) {
       try {
-        // 检查是否包含关键词
+        this.logDebug(`处理帖子: ${post.previewTitle} (${post.publishTime})`);
+
+        // 先检查是否已经处理过（去重优先）
+        if (seenPosts.includes(post.url)) {
+          duplicateCount++;
+          this.logDebug(`帖子已发送过，跳过: ${post.previewTitle}`);
+          continue;
+        }
+
+        // 再检查是否包含关键词
         const containsKeyword = this.config.matchKeywords.some((keyword: string) =>
           post.previewTitle.toLowerCase().includes(keyword.toLowerCase())
         );
 
         if (!containsKeyword) {
+          this.logDebug(`帖子不包含关键词，跳过: ${post.previewTitle}`);
           continue;
         }
 
-        this.logger.debug(`处理帖子: ${post.previewTitle} (${post.publishTime})`);
         this.logger.success(`发现新的关键词匹配帖子: ${post.previewTitle} (${post.publishTime})`);
-
-        // 检查是否已经处理过
-        if (seenPosts.includes(post.url)) {
-          duplicateCount++;
-          this.logger.debug(`帖子已发送过，跳过: ${post.previewTitle}`);
-          continue;
-        }
 
         // 发送通知
         const message = this.formatMessage(post);
@@ -197,7 +216,7 @@ export class XhsMonitoringTask extends MonitoringTask {
 
   protected formatMessage(post: any): string {
     const now = new Date();
-    const timeString = now.toLocaleString('zh-CN', {
+    const pushTimeString = now.toLocaleString('zh-CN', {
       timeZone: 'Asia/Singapore',
       year: 'numeric',
       month: '2-digit',
@@ -207,13 +226,16 @@ export class XhsMonitoringTask extends MonitoringTask {
       second: '2-digit'
     });
 
+    // 使用帖子的发布时间，如果没有则显示"未知"
+    const publishTime = post.publishTime || '未知时间';
+
     return `🚨 小红书关键词新帖
 
 📝 标题：${post.previewTitle}
-👤 作者：${post.author}
-📅 发布时间：${post.publishTime}
+👤 作者：${post.author || '未知作者'}
+📅 发布时间：${publishTime}
 🔗 直达链接：${post.url}
-⏰ 推送时间：${timeString}`;
+⏰ 推送时间：${pushTimeString} (新加坡时间)`;
   }
 }
 
@@ -235,14 +257,14 @@ export class PopMartMonitoringTask extends MonitoringTask {
   }
 
   protected async runMonitoring(): Promise<void> {
-    this.logger.info('开始执行PopMart监控');
-    this.logger.info('🚀 使用新架构完整实现 - 不是简化版本');
+    this.logInfo('开始执行PopMart监控', true);
+    this.logDebug('🚀 使用新架构完整实现 - 不是简化版本');
 
     try {
       // 创建抓取器
-      this.logger.info('正在创建 PopMartScraper 实例');
+      this.logDebug('正在创建 PopMartScraper 实例');
       const scraper = new PopMartScraper(this.browserManager.getPage(), this.logger);
-      this.logger.info('PopMartScraper 实例创建成功');
+      this.logDebug('PopMartScraper 实例创建成功');
 
       // 设置页面
       await scraper.setupPage();
@@ -268,18 +290,18 @@ export class PopMartMonitoringTask extends MonitoringTask {
       const url = this.config.productUrls[i];
 
       try {
-        this.logger.info(`==============================`);
-        this.logger.info(`正在检查商品页面: ${url} (尝试 ${i + 1}/${this.config.productUrls.length})`);
+        this.logDebug(`==============================`);
+        this.logInfo(`正在检查商品页面: ${url} (${i + 1}/${this.config.productUrls.length})`, true);
 
         let result;
 
         if (isGitHubActions) {
           // GitHub Actions 环境：直接使用简化方法，避免框架分离问题
-          this.logger.info('GitHub Actions 环境：使用简化检查方法（避免框架分离）');
+          this.logDebug('GitHub Actions 环境：使用简化检查方法（避免框架分离）');
           result = await this.checkProductSimple(url);
         } else {
           // 本地环境：为了测试准确性，也使用简化方法
-          this.logger.info('本地环境：使用简化检查方法（确保准确性）');
+          this.logDebug('本地环境：使用简化检查方法（确保准确性）');
           result = await this.checkProductSimple(url);
         }
 
@@ -288,30 +310,30 @@ export class PopMartMonitoringTask extends MonitoringTask {
         const statusChanged = previousStatus !== undefined && previousStatus !== result.inStock;
 
         // 输出结果
-        this.logger.info(`商品：${result.title}`);
-        this.logger.info(`链接：${url}`);
-        this.logger.info(`状态：${result.inStock ? '有货' : '缺货'}`);
+        this.logInfo(`商品：${result.title}`, true);
+        this.logDebug(`链接：${url}`);
+        this.logInfo(`状态：${result.inStock ? '✅ 有货' : '❌ 缺货'}`, true);
+
+        // PopMart推送逻辑：只要有货就推送
+        if (result.inStock) {
+          this.logInfo('检测到有货商品，发送通知', true);
+          const message = this.formatMessage({
+            title: result.title,
+            url: url,
+            inStock: result.inStock,
+            previousStatus: previousStatus,
+            statusChanged: statusChanged
+          });
+          await this.sendNotification(message);
+        } else {
+          this.logDebug('商品缺货，不发送通知');
+        }
 
         if (statusChanged) {
           statusChangedCount++;
-          this.logger.success(`状态变化: ${previousStatus ? '有货' : '缺货'} -> ${result.inStock ? '有货' : '缺货'}`);
-
-          // 只有变为有货时才发送通知
-          if (result.inStock) {
-            this.logger.info('商品变为有货，发送通知');
-            const message = this.formatMessage({
-              title: result.title,
-              url: url,
-              inStock: result.inStock,
-              previousStatus: previousStatus,
-              statusChanged: true
-            });
-            await this.sendNotification(message);
-          } else {
-            this.logger.info('商品变为缺货，不发送通知');
-          }
+          this.logInfo(`状态变化: ${previousStatus ? '有货' : '缺货'} -> ${result.inStock ? '有货' : '缺货'}`, true);
         } else {
-          this.logger.info(`状态无变化 (${result.inStock ? '有货' : '缺货'})，跳过推送`);
+          this.logDebug(`状态无变化 (${result.inStock ? '有货' : '缺货'})`);
         }
 
         // 更新状态
