@@ -177,6 +177,36 @@ export class BrowserManager {
   }
 
   /**
+   * 重新创建页面（解决框架分离问题）
+   */
+  async recreatePage(): Promise<void> {
+    try {
+      if (this.page) {
+        await this.page.close();
+        this.page = null;
+      }
+
+      if (this.browser) {
+        this.page = await this.browser.newPage();
+
+        // 重新设置页面配置
+        const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+        if (isGitHubActions) {
+          await this.page.setDefaultTimeout(10000);
+          await this.page.setDefaultNavigationTimeout(15000);
+        }
+
+        this.logger.info('页面重新创建成功');
+      } else {
+        throw new Error('浏览器实例不存在');
+      }
+    } catch (error) {
+      this.logger.error('重新创建页面失败:', error);
+      throw error;
+    }
+  }
+
+  /**
    * 关闭浏览器
    */
   async close(): Promise<void> {

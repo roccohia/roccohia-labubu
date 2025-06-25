@@ -37,13 +37,6 @@ export class PopMartScraper extends PageScraper {
    * 导航到产品页面
    */
   async navigateToProduct(url: string): Promise<void> {
-    const isGitHubActions = this.isGitHubActions();
-
-    if (isGitHubActions) {
-      this.logger.info(`GitHub Actions 环境：跳过页面导航，使用简化检查`);
-      return;
-    }
-
     this.logger.info(`正在检查商品页面: ${url}`);
 
     try {
@@ -71,38 +64,12 @@ export class PopMartScraper extends PageScraper {
    */
   async checkProductStatus(url: string): Promise<ProductInfo> {
     this.logger.info('开始安全检查产品状态');
-    
-    if (this.isGitHubActions()) {
-      return this.checkProductInGitHubActions(url);
-    } else {
-      return this.checkProductNormal(url);
-    }
+
+    // 统一使用正常检查方法，简化逻辑
+    return this.checkProductNormal(url);
   }
 
-  /**
-   * GitHub Actions环境中的产品检查
-   */
-  private async checkProductInGitHubActions(url: string): Promise<ProductInfo> {
-    this.logger.info('GitHub Actions 环境，使用超简化方法');
-    
-    // 等待页面稳定
-    await this.waitForStable(5000);
-    
-    // 从URL提取产品信息，这是最稳定的方法
-    const urlParts = url.split('/');
-    const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
-    let title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    
-    this.logger.info(`✓ 从URL提取的产品标题: ${title}`);
-    
-    // GitHub Actions 环境：完全使用保守策略
-    // 避免任何可能导致框架分离的页面操作
-    const inStock = false; // 默认缺货，确保稳定性
-    
-    this.logger.info('GitHub Actions 环境：使用完全保守策略（默认缺货），确保监控稳定运行');
-    
-    return { title, inStock };
-  }
+
 
   /**
    * 正常环境中的产品检查
