@@ -89,6 +89,8 @@ export abstract class MonitoringTask {
       this.logger.success('通知发送成功');
     } catch (error) {
       this.logger.error('通知发送失败:', error);
+      // 重新抛出错误，让调用方知道推送失败
+      throw error;
     }
   }
 
