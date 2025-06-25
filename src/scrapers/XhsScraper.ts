@@ -77,25 +77,55 @@ export class XhsScraper extends PageScraper {
     const searchUrl = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}&type=51`;
     this.logger.info(`导航到搜索页: ${keyword}`);
 
-    try {
-      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
-      const timeout = isGitHubActions ? 90000 : 30000; // GitHub Actions使用90秒，本地使用30秒
-      await this.navigateToPage(searchUrl, { waitUntil: 'domcontentloaded', timeout });
-      this.logger.info('页面导航成功');
-    } catch (navError) {
-      this.logger.error('页面导航失败:', navError);
-      throw navError;
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+    const maxRetries = isGitHubActions ? 3 : 2;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logger.debug(`导航尝试 ${attempt}/${maxRetries}`);
+
+        const timeout = isGitHubActions ? 60000 : 30000; // GitHub Actions使用60秒，本地使用30秒
+        await this.navigateToPage(searchUrl, { waitUntil: 'domcontentloaded', timeout });
+        this.logger.info('页面导航成功');
+
+        // 等待页面加载完成
+        this.logger.debug('等待页面内容加载');
+        await this.waitForStable(isGitHubActions ? 3000 : 5000);
+
+        // 检查页面状态
+        const currentUrl = await this.getPageUrl();
+        const pageTitle = await this.getPageTitle();
+        this.logger.info(`当前页面URL: ${currentUrl}`);
+        this.logger.info(`页面标题: ${pageTitle}`);
+
+        return; // 成功，退出重试循环
+
+      } catch (error) {
+        this.logger.warn(`导航尝试 ${attempt} 失败:`, error);
+
+        if (attempt === maxRetries) {
+          this.logger.error('所有导航尝试都失败了');
+          throw error;
+        }
+
+        // 等待后重试
+        const waitTime = isGitHubActions ? 2000 : 3000;
+        this.logger.debug(`等待 ${waitTime}ms 后重试`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+
+        // 在GitHub Actions中，如果是frame detached错误，尝试重新创建页面
+        if (isGitHubActions && error instanceof Error && error.message.includes('detached')) {
+          try {
+            this.logger.debug('检测到frame detached错误，尝试重新创建页面');
+            const browser = (this as any).page.browser();
+            (this as any).page = await browser.newPage();
+            await this.setupPage();
+          } catch (recreateError) {
+            this.logger.warn('重新创建页面失败:', recreateError);
+          }
+        }
+      }
     }
-
-    // 等待页面加载完成
-    this.logger.debug('等待页面内容加载');
-    await this.waitForStable(5000);
-
-    // 检查页面状态
-    const currentUrl = await this.getPageUrl();
-    const pageTitle = await this.getPageTitle();
-    this.logger.info(`当前页面URL: ${currentUrl}`);
-    this.logger.info(`页面标题: ${pageTitle}`);
   }
 
   /**
@@ -130,6 +160,13 @@ export class XhsScraper extends PageScraper {
    * 内部帖子提取逻辑
    */
   private async extractPostsInternal(): Promise<XhsPostData[]> {
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+
+    if (isGitHubActions) {
+      this.logger.info('🔧 GitHub Actions环境：使用简化提取逻辑');
+      return await this.extractPostsSimplified();
+    }
+
     // 先获取页面调试信息
     const debugInfo = await this.getDebugInfo();
     this.logDebugInfo(debugInfo);
@@ -144,7 +181,7 @@ export class XhsScraper extends PageScraper {
     // 提取帖子数据
     const posts = await this.extractPostsData(debugInfo.selectedSelector);
     this.logger.debug(`成功提取 ${posts.length} 个帖子`);
-    
+
     return posts;
   }
 
@@ -249,10 +286,15 @@ export class XhsScraper extends PageScraper {
   }
 
   /**
-   * 提取帖子数据
+   * 提取帖子数据（带超时和错误处理）
    */
   private async extractPostsData(selectedSelector: string): Promise<XhsPostData[]> {
-    const result = await this.safeEvaluate((selector: string) => {
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+
+    try {
+      this.logger.debug(`开始提取帖子数据，选择器: ${selectedSelector}`);
+
+      const result = await this.safeEvaluate((selector: string) => {
       const posts: any[] = [];
       const debugInfo: any[] = [];
       const elements = document.querySelectorAll(selector);
@@ -388,44 +430,56 @@ export class XhsScraper extends PageScraper {
       return { posts, debugInfo };
     }, selectedSelector);
 
-    if (result) {
-      // 为所有帖子设置基于URL的相对时间信息
-      // 从小红书帖子ID中提取时间信息（小红书ID包含时间戳信息）
-      for (const post of result.posts) {
-        if (post.publishTime === '待提取') {
-          try {
-            // 从URL中提取帖子ID: /explore/6857c493000000001d00eb64
-            const urlMatch = post.url.match(/\/explore\/([a-f0-9]+)/);
-            if (urlMatch) {
-              const postId = urlMatch[1];
-              // 小红书ID的前8位是时间戳的十六进制表示
-              const timeHex = postId.substring(0, 8);
-              const timestamp = parseInt(timeHex, 16);
+      if (result) {
+        // 为所有帖子设置基于URL的相对时间信息
+        // 从小红书帖子ID中提取时间信息（小红书ID包含时间戳信息）
+        for (const post of result.posts) {
+          if (post.publishTime === '待提取') {
+            try {
+              // 从URL中提取帖子ID: /explore/6857c493000000001d00eb64
+              const urlMatch = post.url.match(/\/explore\/([a-f0-9]+)/);
+              if (urlMatch) {
+                const postId = urlMatch[1];
+                // 小红书ID的前8位是时间戳的十六进制表示
+                const timeHex = postId.substring(0, 8);
+                const timestamp = parseInt(timeHex, 16);
 
-              if (timestamp > 0) {
-                const postDate = new Date(timestamp * 1000);
-                const now = new Date();
-                const diffMs = now.getTime() - postDate.getTime();
-                const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-                const diffDays = Math.floor(diffHours / 24);
+                if (timestamp > 0) {
+                  const postDate = new Date(timestamp * 1000);
+                  const now = new Date();
+                  const diffMs = now.getTime() - postDate.getTime();
+                  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                  const diffDays = Math.floor(diffHours / 24);
 
-                if (diffDays === 0) {
-                  if (diffHours === 0) {
-                    post.publishTime = '刚刚';
+                  if (diffDays === 0) {
+                    if (diffHours === 0) {
+                      post.publishTime = '刚刚';
+                    } else {
+                      post.publishTime = `${diffHours}小时前`;
+                    }
+                  } else if (diffDays === 1) {
+                    post.publishTime = '昨天';
+                  } else if (diffDays < 7) {
+                    post.publishTime = `${diffDays}天前`;
                   } else {
-                    post.publishTime = `${diffHours}小时前`;
+                    const month = postDate.getMonth() + 1;
+                    const day = postDate.getDate();
+                    post.publishTime = `${month}-${day}`;
                   }
-                } else if (diffDays === 1) {
-                  post.publishTime = '昨天';
-                } else if (diffDays < 7) {
-                  post.publishTime = `${diffDays}天前`;
                 } else {
-                  const month = postDate.getMonth() + 1;
-                  const day = postDate.getDate();
-                  post.publishTime = `${month}-${day}`;
+                  // 如果时间戳解析失败，使用当前时间
+                  const now = new Date();
+                  const timeString = now.toLocaleString('zh-CN', {
+                    timeZone: 'Asia/Singapore',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  });
+                  post.publishTime = `今日 ${timeString}`;
                 }
               } else {
-                // 如果时间戳解析失败，使用当前时间
+                // 如果URL格式不匹配，使用当前时间
                 const now = new Date();
                 const timeString = now.toLocaleString('zh-CN', {
                   timeZone: 'Asia/Singapore',
@@ -436,8 +490,8 @@ export class XhsScraper extends PageScraper {
                 });
                 post.publishTime = `今日 ${timeString}`;
               }
-            } else {
-              // 如果URL格式不匹配，使用当前时间
+            } catch (error) {
+              // 如果解析失败，使用当前时间
               const now = new Date();
               const timeString = now.toLocaleString('zh-CN', {
                 timeZone: 'Asia/Singapore',
@@ -448,33 +502,126 @@ export class XhsScraper extends PageScraper {
               });
               post.publishTime = `今日 ${timeString}`;
             }
+          }
+        }
+
+        this.logger.info(`成功提取 ${result.posts.length} 个帖子，已为所有帖子设置基于ID的相对时间信息`);
+
+        // 输出调试信息（仅在本地环境）
+        if (!isGitHubActions) {
+          this.logger.info('=== 帖子提取调试信息 ===');
+          result.debugInfo.forEach((info: string) => this.logger.info(info));
+        }
+
+        return result.posts;
+      }
+
+      return [];
+    } catch (error) {
+      this.logger.error('提取帖子数据时出错:', error);
+
+      // 在GitHub Actions中，如果提取失败，返回空数组而不是抛出错误
+      if (isGitHubActions) {
+        this.logger.warn('GitHub Actions环境：提取失败，返回空结果');
+        return [];
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * GitHub Actions环境的简化帖子提取
+   */
+  private async extractPostsSimplified(): Promise<XhsPostData[]> {
+    try {
+      this.logger.info('使用GitHub Actions简化提取逻辑');
+
+      // 等待页面稳定
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // 使用最简单的选择器和最短的超时
+      const result = await Promise.race([
+        this.page.evaluate(() => {
+          const posts: any[] = [];
+          const elements = document.querySelectorAll('section.note-item');
+
+          for (let i = 0; i < Math.min(elements.length, 20); i++) { // 限制处理数量
+            const section = elements[i];
+            try {
+              const linkElement = section.querySelector('a[href^="/explore/"]') as HTMLAnchorElement;
+              if (!linkElement) continue;
+
+              const url = linkElement.href.startsWith('http')
+                ? linkElement.href
+                : `https://www.xiaohongshu.com${linkElement.href}`;
+
+              const titleElement = section.querySelector('.note-title, .title, .content') as HTMLElement;
+              if (!titleElement || !titleElement.innerText?.trim()) continue;
+
+              posts.push({
+                url: url,
+                previewTitle: titleElement.innerText.trim(),
+                publishTime: '待提取',
+                location: '',
+                author: '作者未知'
+              });
+            } catch (error) {
+              // 忽略单个元素的错误
+            }
+          }
+
+          return posts;
+        }),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('GitHub Actions简化提取超时')), 15000);
+        })
+      ]);
+
+      // 处理时间信息
+      for (const post of result) {
+        if (post.publishTime === '待提取') {
+          try {
+            const urlMatch = post.url.match(/\/explore\/([a-f0-9]+)/);
+            if (urlMatch) {
+              const postId = urlMatch[1];
+              const timeHex = postId.substring(0, 8);
+              const timestamp = parseInt(timeHex, 16);
+
+              if (timestamp > 0) {
+                const postDate = new Date(timestamp * 1000);
+                const now = new Date();
+                const diffDays = Math.floor((now.getTime() - postDate.getTime()) / (1000 * 60 * 60 * 24));
+
+                if (diffDays === 0) {
+                  post.publishTime = '今天';
+                } else if (diffDays === 1) {
+                  post.publishTime = '昨天';
+                } else if (diffDays < 7) {
+                  post.publishTime = `${diffDays}天前`;
+                } else {
+                  const month = postDate.getMonth() + 1;
+                  const day = postDate.getDate();
+                  post.publishTime = `${month}-${day}`;
+                }
+              } else {
+                post.publishTime = '今天';
+              }
+            } else {
+              post.publishTime = '今天';
+            }
           } catch (error) {
-            // 如果解析失败，使用当前时间
-            const now = new Date();
-            const timeString = now.toLocaleString('zh-CN', {
-              timeZone: 'Asia/Singapore',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit'
-            });
-            post.publishTime = `今日 ${timeString}`;
+            post.publishTime = '今天';
           }
         }
       }
 
-      this.logger.info(`成功提取 ${result.posts.length} 个帖子，已为所有帖子设置基于ID的相对时间信息`);
+      this.logger.info(`GitHub Actions简化提取完成，获得 ${result.length} 个帖子`);
+      return result;
 
-      // 输出调试信息（仅在本地环境）
-      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
-      if (!isGitHubActions) {
-        this.logger.info('=== 帖子提取调试信息 ===');
-        result.debugInfo.forEach((info: string) => this.logger.info(info));
-      }
-
-      return result.posts;
+    } catch (error) {
+      this.logger.error('GitHub Actions简化提取失败:', error);
+      return [];
     }
-
-    return [];
   }
 }

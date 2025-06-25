@@ -207,21 +207,50 @@ export class BrowserManager {
   }
 
   /**
-   * 关闭浏览器
+   * 关闭浏览器（带超时保护）
    */
   async close(): Promise<void> {
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+    const timeout = isGitHubActions ? 10000 : 30000; // GitHub Actions: 10秒，本地: 30秒
+
     try {
-      if (this.page) {
-        await this.page.close();
-        this.page = null;
-      }
-      if (this.browser) {
-        await this.browser.close();
-        this.browser = null;
-      }
-      this.logger.info('浏览器已关闭');
+      await Promise.race([
+        this.closeInternal(),
+        new Promise<void>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error(`浏览器关闭超时（${timeout/1000}秒）`));
+          }, timeout);
+        })
+      ]);
     } catch (error) {
       this.logger.warn('关闭浏览器时出错:', error);
+
+      // 强制清理
+      try {
+        if (this.browser) {
+          this.browser.process()?.kill('SIGKILL');
+        }
+      } catch (killError) {
+        this.logger.debug('强制终止浏览器进程失败:', killError);
+      }
+
+      this.page = null;
+      this.browser = null;
     }
+  }
+
+  /**
+   * 内部关闭逻辑
+   */
+  private async closeInternal(): Promise<void> {
+    if (this.page) {
+      await this.page.close();
+      this.page = null;
+    }
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+    }
+    this.logger.info('浏览器已关闭');
   }
 }

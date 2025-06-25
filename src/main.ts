@@ -109,30 +109,56 @@ function shouldRunPopMartTask(): boolean {
 }
 
 /**
+ * 全局清理函数
+ */
+let isShuttingDown = false;
+async function gracefulShutdown(signal: string): Promise<void> {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  logger.info(`收到 ${signal} 信号，正在优雅退出...`);
+
+  try {
+    // 给正在运行的任务一些时间完成
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  } catch (error) {
+    logger.error('优雅退出时出错:', error);
+  }
+
+  process.exit(0);
+}
+
+/**
  * 处理未捕获的异常
  */
 process.on('uncaughtException', (error) => {
   logger.error('未捕获的异常:', error);
-  process.exit(1);
+  if (!isShuttingDown) {
+    gracefulShutdown('uncaughtException');
+  }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('未处理的Promise拒绝:', reason);
-  process.exit(1);
+  if (!isShuttingDown) {
+    gracefulShutdown('unhandledRejection');
+  }
 });
 
 /**
  * 优雅退出处理
  */
-process.on('SIGINT', () => {
-  logger.info('收到 SIGINT 信号，正在优雅退出...');
-  process.exit(0);
-});
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
-process.on('SIGTERM', () => {
-  logger.info('收到 SIGTERM 信号，正在优雅退出...');
-  process.exit(0);
-});
+// GitHub Actions特殊处理
+if (process.env.GITHUB_ACTIONS === 'true') {
+  // 设置更短的超时，避免GitHub Actions卡住
+  setTimeout(() => {
+    logger.warn('GitHub Actions环境：达到最大运行时间，强制退出');
+    process.exit(0);
+  }, 22 * 60 * 1000); // 22分钟强制退出
+}
 
 // 启动应用
 if (require.main === module) {

@@ -187,15 +187,25 @@ export class PageScraper {
   }
 
   /**
-   * 安全地执行页面脚本
+   * 安全地执行页面脚本（带超时保护）
    */
   async safeEvaluate<T>(pageFunction: (...args: any[]) => T, ...args: any[]): Promise<T | null> {
     try {
-      if (args.length > 0) {
-        return await this.page.evaluate(pageFunction, ...args);
-      } else {
-        return await this.page.evaluate(pageFunction);
-      }
+      // 设置超时保护，GitHub Actions使用更短的超时
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      const timeout = isGitHubActions ? 30000 : 60000; // GitHub Actions: 30秒，本地: 60秒
+
+      const evaluatePromise = args.length > 0
+        ? this.page.evaluate(pageFunction, ...args)
+        : this.page.evaluate(pageFunction);
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`页面脚本执行超时（${timeout/1000}秒）`));
+        }, timeout);
+      });
+
+      return await Promise.race([evaluatePromise, timeoutPromise]);
     } catch (error) {
       this.logger.debug('页面脚本执行失败:', error);
       return null;
