@@ -121,6 +121,13 @@ export class XhsScraper extends PageScraper {
   }
 
   /**
+   * 调试日志方法
+   */
+  private logDebug(message: string): void {
+    this.logger.debug(message);
+  }
+
+  /**
    * 内部帖子提取逻辑
    */
   private async extractPostsInternal(): Promise<XhsPostData[]> {
@@ -255,7 +262,8 @@ export class XhsScraper extends PageScraper {
         return { posts, debugInfo: ['没有找到元素'] };
       }
 
-      elements.forEach((section, index) => {
+      for (let index = 0; index < elements.length; index++) {
+        const section = elements[index];
         try {
           // 调试：记录前几个元素的详细信息
           if (index < 3) {
@@ -289,7 +297,7 @@ export class XhsScraper extends PageScraper {
           }
 
           if (!linkElement || !linkElement.href.includes('/explore/')) {
-            return;
+            continue;
           }
 
           const url = linkElement.href.startsWith('http') 
@@ -315,43 +323,12 @@ export class XhsScraper extends PageScraper {
           }
 
           if (!titleElement || !titleElement.innerText?.trim()) {
-            return;
+            continue;
           }
 
-          // 抓取时间和地区信息
-          let publishTime = '时间未知';
-          let location = '';
-
-          // 尝试从搜索页面提取时间信息
-          // 方法1：查找可能包含时间的元素
-          const allElements = section.querySelectorAll('*');
-          for (const element of allElements) {
-            const text = element.textContent?.trim();
-            if (text && text.length > 3 && text.length < 30) {
-              // 匹配真实的时间格式："1小时前 中国香港", "5天前 上海", "昨天 北京"
-              if (text.match(/^\d+[分时天月年]前\s+[\u4e00-\u9fa5]+$/) ||
-                  text.match(/^(昨天|今天|前天)\s+[\u4e00-\u9fa5]+$/) ||
-                  text.match(/^\d+-\d+\s+[\u4e00-\u9fa5]+$/)) {
-                publishTime = text;
-                debugInfo.push(`找到真实时间: ${text}`);
-                break;
-              }
-            }
-          }
-
-          // 方法2：如果没找到真实时间，使用当前时间
-          if (publishTime === '时间未知') {
-            const now = new Date();
-            const timeString = now.toLocaleString('zh-CN', {
-              timeZone: 'Asia/Singapore',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit'
-            });
-            publishTime = `今日 ${timeString}`;
-            debugInfo.push(`使用当前时间: ${publishTime}`);
-          }
+          // 抓取时间信息
+          let publishTime = '待获取';
+          debugInfo.push(`URL: ${url}`);
 
           // 抓取作者
           const authorSelectors = [
@@ -407,12 +384,33 @@ export class XhsScraper extends PageScraper {
             debugInfo.push(`处理第 ${index} 个帖子元素时出错: ${error}`);
           }
         }
-      });
+      }
 
       return { posts, debugInfo };
     }, selectedSelector);
 
     if (result) {
+      // 为所有帖子设置统一的时间格式
+      const now = new Date();
+      const timeString = now.toLocaleString('zh-CN', {
+        timeZone: 'Asia/Singapore',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      for (const post of result.posts) {
+        if (post.publishTime === '待获取') {
+          post.publishTime = `今日 ${timeString}`;
+        }
+      }
+
+      this.logger.info(`已为 ${result.posts.length} 个帖子设置时间信息`);
+
+      // 注意：由于小红书的反爬虫机制，真实时间提取比较复杂
+      // 当前使用统一时间格式，如需真实时间可以考虑其他方案
+
       // 输出调试信息（仅在本地环境）
       const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
       if (!isGitHubActions) {
