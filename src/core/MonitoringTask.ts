@@ -45,11 +45,11 @@ export abstract class MonitoringTask {
     this.logger.info(`=== 开始执行${this.taskName}监控任务 ===`);
 
     try {
-      // 设置任务超时时间（15分钟，留5分钟给清理工作）
+      // 设置任务超时时间（20分钟，留5分钟给清理工作）
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error(`${this.taskName}监控任务超时（15分钟）`));
-        }, 15 * 60 * 1000);
+          reject(new Error(`${this.taskName}监控任务超时（20分钟）`));
+        }, 20 * 60 * 1000);
       });
 
       await Promise.race([
@@ -141,6 +141,11 @@ export class XhsMonitoringTask extends MonitoringTask {
     this.logInfo('开始执行小红书监控', true);
     this.logDebug('🚀 使用新架构完整实现 - 不是简化版本');
 
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+    if (isGitHubActions) {
+      this.logger.info('🔧 GitHub Actions 环境检测到，使用优化配置');
+    }
+
     try {
       // 创建抓取器
       this.logDebug('正在创建 XhsScraper 实例');
@@ -148,9 +153,11 @@ export class XhsMonitoringTask extends MonitoringTask {
       this.logDebug('XhsScraper 实例创建成功');
 
       // 设置页面
+      this.logInfo('设置页面配置', true);
       await scraper.setupPage();
 
       // 导航到搜索页面
+      this.logInfo('导航到搜索页面', true);
       await scraper.navigateToSearch(this.config.searchKeyword);
 
       // 提取帖子
@@ -164,6 +171,7 @@ export class XhsMonitoringTask extends MonitoringTask {
       }
 
       // 处理帖子
+      this.logInfo('开始处理帖子数据', true);
       await this.processXhsPosts(posts);
 
     } catch (error) {
@@ -180,6 +188,7 @@ export class XhsMonitoringTask extends MonitoringTask {
     const newlySeenPosts: string[] = []; // 临时数组，只记录成功推送的帖子
     let newPostCount = 0;
     let duplicateCount = 0;
+    let keywordMatchCount = 0;
 
     this.logInfo(`开始处理 ${posts.length} 个帖子，进行关键词匹配和去重`, true);
 
@@ -187,20 +196,28 @@ export class XhsMonitoringTask extends MonitoringTask {
       try {
         this.logDebug(`处理帖子: ${post.previewTitle} (${post.publishTime})`);
 
-        // 先检查是否已经处理过（去重优先）
-        if (seenPosts.includes(post.url)) {
-          duplicateCount++;
-          this.logDebug(`帖子已发送过，跳过: ${post.previewTitle}`);
-          continue;
-        }
-
-        // 再检查是否包含关键词
+        // 先检查是否包含关键词
         const containsKeyword = this.config.matchKeywords.some((keyword: string) =>
           post.previewTitle.toLowerCase().includes(keyword.toLowerCase())
         );
 
         if (!containsKeyword) {
           this.logDebug(`帖子不包含关键词，跳过: ${post.previewTitle}`);
+          continue;
+        }
+
+        keywordMatchCount++;
+
+        // 再检查是否已经处理过（去重检查）
+        if (seenPosts.includes(post.url)) {
+          duplicateCount++;
+          this.logDebug(`帖子已发送过，跳过: ${post.previewTitle}`);
+          continue;
+        }
+
+        // 双重检查：确保URL不在新推送列表中
+        if (newlySeenPosts.includes(post.url)) {
+          this.logDebug(`帖子在本次运行中已处理，跳过: ${post.previewTitle}`);
           continue;
         }
 
@@ -247,7 +264,7 @@ export class XhsMonitoringTask extends MonitoringTask {
       this.logger.info(`📝 无新的成功推送，状态文件保持不变`);
     }
 
-    this.logger.info(`处理完成 - 总帖子: ${posts.length}, 关键词匹配: ${newPostCount + duplicateCount}, 新发送: ${newPostCount}, 重复: ${duplicateCount}`);
+    this.logger.info(`处理完成 - 总帖子: ${posts.length}, 关键词匹配: ${keywordMatchCount}, 新发送: ${newPostCount}, 重复: ${duplicateCount}`);
 
     if (newPostCount === 0) {
       this.logger.info('暂无符合条件的新帖子');
@@ -266,7 +283,7 @@ export class XhsMonitoringTask extends MonitoringTask {
       second: '2-digit'
     });
 
-    // 使用帖子的发布时间和地区，如果没有则显示"未知"
+    // 使用帖子的发布时间，确保显示正确的相对时间
     const publishTime = post.publishTime || '未知时间';
     const location = post.location || '';
 
@@ -274,9 +291,9 @@ export class XhsMonitoringTask extends MonitoringTask {
 
 📝 标题：${post.previewTitle}
 👤 作者：${post.author || '未知作者'}
-📅 发布时间：${publishTime}${location ? ` 📍 ${location}` : ''}
+📅 帖子发布：${publishTime}${location ? ` 📍 ${location}` : ''}
 🔗 直达链接：${post.url}
-⏰ 推送时间：${pushTimeString} (新加坡时间)`;
+⏰ 系统推送：${pushTimeString} (新加坡时间)`;
   }
 }
 

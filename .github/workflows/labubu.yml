@@ -103,7 +103,7 @@ jobs:
       - name: Run Labubu monitoring tasks
         run: |
           npx ts-node src/main.ts
-        timeout-minutes: 18
+        timeout-minutes: 25
 
       - name: Upload debug artifacts on failure
         if: failure()

@@ -110,10 +110,10 @@ export class BrowserManager {
 
     this.page = await this.browser.newPage();
 
-    // 在 GitHub Actions 中设置更保守的页面配置
+    // 在 GitHub Actions 中设置更宽松的页面配置
     if (isGitHubActions) {
-      await this.page.setDefaultTimeout(10000);
-      await this.page.setDefaultNavigationTimeout(15000);
+      await this.page.setDefaultTimeout(60000);
+      await this.page.setDefaultNavigationTimeout(90000);
     }
 
     return { browser: this.browser, page: this.page };

@@ -78,7 +78,9 @@ export class XhsScraper extends PageScraper {
     this.logger.info(`导航到搜索页: ${keyword}`);
 
     try {
-      await this.navigateToPage(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      const timeout = isGitHubActions ? 90000 : 30000; // GitHub Actions使用90秒，本地使用30秒
+      await this.navigateToPage(searchUrl, { waitUntil: 'domcontentloaded', timeout });
       this.logger.info('页面导航成功');
     } catch (navError) {
       this.logger.error('页面导航失败:', navError);
@@ -103,11 +105,13 @@ export class XhsScraper extends PageScraper {
     this.logger.info('开始提取帖子数据');
 
     try {
-      // 设置提取超时时间（3分钟）
+      // 设置提取超时时间（GitHub Actions使用5分钟，本地使用3分钟）
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      const timeoutMinutes = isGitHubActions ? 5 : 3;
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
-          reject(new Error('帖子提取超时（3分钟）'));
-        }, 3 * 60 * 1000);
+          reject(new Error(`帖子提取超时（${timeoutMinutes}分钟）`));
+        }, timeoutMinutes * 60 * 1000);
       });
 
       return await Promise.race([
@@ -118,13 +122,6 @@ export class XhsScraper extends PageScraper {
       this.logger.error('帖子提取失败:', error);
       throw error;
     }
-  }
-
-  /**
-   * 调试日志方法
-   */
-  private logDebug(message: string): void {
-    this.logger.debug(message);
   }
 
 
