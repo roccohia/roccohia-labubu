@@ -560,42 +560,82 @@ export class PopMartMonitoringTask extends MonitoringTask {
     let title: string;
     let inStock: boolean;
 
-    if (url.includes('/pop-now/set/')) {
-      // 盲盒套装页面 - 需要检查实际状态，不能假设有货
-      const setId = url.split('/').pop() || 'Unknown Set';
-      title = `PopMart 盲盒套装 ${setId}`;
+    // 尝试通过HTTP请求获取页面标题
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      });
 
-      // 重要：盲盒套装也可能是IN-APP PURCHASE ONLY状态，应该判断为缺货
-      // GitHub Actions环境下，为了避免误报，默认设置为缺货
-      inStock = false;
-      this.logger.info('检测到盲盒套装页面，使用保守策略判断为缺货（避免IN-APP PURCHASE ONLY误报）');
-    } else if (url.includes('/products/')) {
-      // 普通产品页面 - 从URL提取产品信息
-      const urlParts = url.split('/');
-      const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
-      title = decodeURIComponent(productPart).replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      if (response.ok) {
+        const html = await response.text();
 
-      // 更保守的库存判断策略
-      // 只有特定的已知有货产品才设置为有货，其他默认缺货
-      if (url.includes('/pop-now/set/141') || url.includes('THE%20MONSTERS%20%C3%97%20One%20Piece')) {
-        // 你添加的两个新链接，确认为有货
-        inStock = true;
-        this.logger.info('检测到确认有货的产品，判断为有货');
+        // 提取页面标题
+        const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+        if (titleMatch && titleMatch[1]) {
+          title = titleMatch[1].replace(/\s*-\s*POP MART.*$/i, '').trim();
+          this.logger.debug(`从页面标题提取到商品名称: ${title}`);
+        } else {
+          // 如果无法提取标题，使用URL备选方案
+          title = this.extractTitleFromUrl(url);
+        }
+
+        // 检查IN-APP PURCHASE ONLY状态
+        if (html.toLowerCase().includes('in-app purchase only') ||
+            html.toLowerCase().includes('app purchase only')) {
+          inStock = false;
+          this.logger.info('检测到IN-APP PURCHASE ONLY，判断为缺货');
+        } else if (url.includes('/pop-now/set/')) {
+          // 盲盒套装页面，保守策略
+          inStock = false;
+          this.logger.info('盲盒套装页面，使用保守策略判断为缺货');
+        } else {
+          // 其他产品，保守策略
+          inStock = false;
+          this.logger.info('使用保守策略判断为缺货');
+        }
       } else {
-        // 其他所有产品默认为缺货，避免误报
+        // HTTP请求失败，使用URL备选方案
+        title = this.extractTitleFromUrl(url);
         inStock = false;
-        this.logger.info('使用保守策略，默认判断为缺货（避免误报）');
+        this.logger.warn(`HTTP请求失败 (${response.status})，使用URL提取标题`);
       }
-    } else {
-      // 其他类型页面
-      title = 'Unknown PopMart Product';
+    } catch (error) {
+      // 网络错误，使用URL备选方案
+      title = this.extractTitleFromUrl(url);
       inStock = false;
-      this.logger.info('未知页面类型，使用保守策略（缺货）');
+      this.logger.warn(`网络请求失败，使用URL提取标题: ${error}`);
+    }
+
+    // 如果上面的HTTP请求方法失败，使用传统的URL解析方法
+    if (!title) {
+      title = this.extractTitleFromUrl(url);
+      inStock = false;
+      this.logger.info('HTTP方法失败，使用URL方法提取标题');
     }
 
     this.logger.info(`简化检查结果 - 标题: ${title}, 状态: ${inStock ? '有货' : '缺货'}`);
 
     return { title, inStock };
+  }
+
+  /**
+   * 从URL提取商品标题的备选方法
+   */
+  private extractTitleFromUrl(url: string): string {
+    if (url.includes('/pop-now/set/')) {
+      // 盲盒套装页面
+      const setId = url.split('/').pop() || 'Unknown Set';
+      return `PopMart 盲盒套装 ${setId}`;
+    } else if (url.includes('/products/')) {
+      // 普通产品页面
+      const urlParts = url.split('/');
+      const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
+      return decodeURIComponent(productPart).replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    } else {
+      return 'Unknown Product';
+    }
   }
 
   protected formatMessage(product: any): string {
