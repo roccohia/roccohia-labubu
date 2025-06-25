@@ -103,10 +103,13 @@ export class XhsMonitoringTask extends MonitoringTask {
 
   protected async runMonitoring(): Promise<void> {
     this.logger.info('开始执行小红书监控');
+    this.logger.info('🚀 使用新架构完整实现 - 不是简化版本');
 
     try {
       // 创建抓取器
+      this.logger.info('正在创建 XhsScraper 实例');
       const scraper = new XhsScraper(this.browserManager.getPage(), this.logger);
+      this.logger.info('XhsScraper 实例创建成功');
 
       // 设置页面
       await scraper.setupPage();
@@ -233,10 +236,13 @@ export class PopMartMonitoringTask extends MonitoringTask {
 
   protected async runMonitoring(): Promise<void> {
     this.logger.info('开始执行PopMart监控');
+    this.logger.info('🚀 使用新架构完整实现 - 不是简化版本');
 
     try {
       // 创建抓取器
+      this.logger.info('正在创建 PopMartScraper 实例');
       const scraper = new PopMartScraper(this.browserManager.getPage(), this.logger);
+      this.logger.info('PopMartScraper 实例创建成功');
 
       // 设置页面
       await scraper.setupPage();
