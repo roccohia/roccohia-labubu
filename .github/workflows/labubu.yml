@@ -102,7 +102,7 @@ jobs:
 
       - name: Run Labubu monitoring tasks
         run: |
-          npx ts-node src/jobs/run-all.ts
+          npx ts-node src/main.ts
         timeout-minutes: 25
 
       - name: Upload debug artifacts on failure

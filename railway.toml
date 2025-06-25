@@ -3,7 +3,7 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node -r ts-node/register src/jobs/run-all.ts"
+startCommand = "node -r ts-node/register src/main.ts"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 

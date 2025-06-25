@@ -4,13 +4,15 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "run:xhs": "npx ts-node src/jobs/xhs-labubu.ts",
-    "debug:xhs": "npx ts-node src/jobs/xhs-labubu.ts --debug",
-    "run:sgpm": "npx ts-node src/jobs/sgpm-labubu.ts",
-    "debug:sgpm": "npx ts-node src/jobs/sgpm-labubu.ts --debug",
-    "run:all": "npx ts-node src/jobs/run-all.ts",
-    "debug:all": "npx ts-node src/jobs/run-all.ts --debug",
-    "start": "node -r ts-node/register src/jobs/run-all.ts"
+    "start": "npx ts-node src/main.ts",
+    "dev": "npx ts-node src/main.ts --debug",
+    "run:xhs": "npx ts-node src/main.ts --xhs-only",
+    "run:popmart": "npx ts-node src/main.ts --popmart-only",
+    "debug:xhs": "npx ts-node src/main.ts --xhs-only --debug",
+    "debug:popmart": "npx ts-node src/main.ts --popmart-only --debug",
+    "legacy:xhs": "npx ts-node src/jobs/xhs-labubu.ts",
+    "legacy:sgpm": "npx ts-node src/jobs/sgpm-labubu.ts",
+    "legacy:all": "npx ts-node src/jobs/run-all.ts"
   },
   "keywords": [],
   "author": "",

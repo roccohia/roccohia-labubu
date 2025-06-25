@@ -200,53 +200,107 @@ async function extractPosts(page: Page): Promise<ExtractionResult> {
             }
           }
 
-          // 抓取发布时间 - 使用更全面的小红书选择器和调试
-          let publishTime = '';
-          const timeSelectors = [
-            'span[data-v-610be4fa][class="date"]',  // 精确匹配你提供的选择器
-            'span.date[selected-disabled-search]',  // 带属性的选择器
-            'span.date',  // 通用的 date 类选择器
-            'span[class="date"]',  // 精确类匹配
-            '[selected-disabled-search]',  // 通过特殊属性查找
-            '.footer .time',
-            '.note-time',
-            '.publish-time',
-            '.date',
-            '.time',
-            '[class*="time"]',
-            '[class*="date"]',
-            '.footer span:last-child',
-            '.footer > span',
-            '.note-item .footer span',
-            '.footer .desc',
-            '.desc',
-            '.meta',
-            '.info',
-            '.note-meta',
-            'span[class*="date"]',
-            'div[class*="date"]'
-          ];
+          // 抓取发布时间 - 改进的时间提取策略
+          let publishTime = '时间未知';
 
-          // 记录调试信息
-          console.log(`开始查找时间信息，帖子标题: ${titleElement?.innerText?.trim()}`);
+          // 策略1: 查找所有元素，寻找包含时间信息的文本
+          const allElements = section.querySelectorAll('*');
+          for (const element of allElements) {
+            const text = (element as HTMLElement).innerText?.trim();
+            if (text && text.length > 2 && text.length < 50) { // 时间文本通常不会太长
+              if (index < 3) {
+                debugInfo.push(`检查元素文本: "${text}"`);
+              }
 
-          for (const timeSelector of timeSelectors) {
-            const timeElement = section.querySelector(timeSelector) as HTMLElement;
-            if (timeElement && timeElement.innerText?.trim()) {
-              const timeText = timeElement.innerText.trim();
-              console.log(`检查选择器 ${timeSelector}: "${timeText}"`);
-
-              // 验证是否看起来像时间格式，包含新的格式 "编辑于 6天前 新加坡"
-              if (timeText.match(/\d+[分时天月年前]|ago|\d{1,2}[-/]\d{1,2}|\d{4}[-/]\d{1,2}[-/]\d{1,2}|昨天|今天|前天|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}|编辑于\s*\d+[天小时分钟]前|编辑于\s*\d{2}-\d{2}|发布于|更新于/)) {
-                publishTime = timeText;
-                console.log(`✓ 找到发布时间: ${publishTime} 使用选择器: ${timeSelector}`);
+              // 检查是否包含时间相关的关键词和地区信息
+              if (text.match(/编辑于.*?[前天小时分钟].*?(新加坡|singapore|sg)/i) ||
+                  text.match(/发布于.*?[前天小时分钟].*?(新加坡|singapore|sg)/i) ||
+                  text.match(/更新于.*?[前天小时分钟].*?(新加坡|singapore|sg)/i) ||
+                  text.match(/\d+[分时天月年]前.*?(新加坡|singapore|sg)/i) ||
+                  text.match(/(新加坡|singapore|sg).*?\d+[分时天月年]前/i) ||
+                  text.match(/编辑于\s*\d{2}-\d{2}.*?(新加坡|singapore|sg)/i) ||
+                  text.match(/编辑于\s*\d+天前.*?(新加坡|singapore|sg)/i)) {
+                publishTime = text;
+                if (index < 3) {
+                  debugInfo.push(`✓ 策略1找到时间+地区: ${publishTime}`);
+                }
                 break;
               }
 
-              // 特殊处理：如果包含数字和"w"（可能是浏览量），跳过
-              if (timeText.match(/\d+\.?\d*w/)) {
-                console.log(`跳过浏览量数据: ${timeText}`);
-                continue;
+              // 检查纯时间格式（没有地区信息的）
+              if (text.match(/^\d+[分时天月年]前$/) ||
+                  text.match(/^编辑于\s*\d+[分时天月年]前$/) ||
+                  text.match(/^发布于\s*\d+[分时天月年]前$/) ||
+                  text.match(/^编辑于\s*\d{2}-\d{2}$/) ||
+                  text.match(/^\d{2}-\d{2}$/) ||
+                  text.match(/^昨天$/) ||
+                  text.match(/^今天$/) ||
+                  text.match(/^前天$/)) {
+                publishTime = text;
+                if (index < 3) {
+                  debugInfo.push(`✓ 策略1找到纯时间: ${publishTime}`);
+                }
+                break;
+              }
+            }
+          }
+
+          // 策略2: 如果策略1失败，使用传统选择器
+          if (publishTime === '时间未知') {
+            const timeSelectors = [
+              'span[data-v-610be4fa][class="date"]',
+              'span.date[selected-disabled-search]',
+              'span.date',
+              'span[class="date"]',
+              '[selected-disabled-search]',
+              '.footer .time',
+              '.note-time',
+              '.publish-time',
+              '.date',
+              '.time',
+              '[class*="time"]',
+              '[class*="date"]',
+              '.footer span:last-child',
+              '.footer > span',
+              '.note-item .footer span',
+              '.footer .desc',
+              '.desc',
+              '.meta',
+              '.info',
+              '.note-meta',
+              'span[class*="date"]',
+              'div[class*="date"]'
+            ];
+
+            // 策略2: 传统选择器查找
+            if (index < 3) {
+              debugInfo.push(`开始策略2查找时间信息，帖子标题: ${titleElement?.innerText?.trim()}`);
+            }
+
+            for (const timeSelector of timeSelectors) {
+              const timeElement = section.querySelector(timeSelector) as HTMLElement;
+              if (timeElement && timeElement.innerText?.trim()) {
+                const timeText = timeElement.innerText.trim();
+                if (index < 3) {
+                  debugInfo.push(`检查选择器 ${timeSelector}: "${timeText}"`);
+                }
+
+                // 验证是否看起来像时间格式
+                if (timeText.match(/\d+[分时天月年前]|ago|\d{1,2}[-/]\d{1,2}|\d{4}[-/]\d{1,2}[-/]\d{1,2}|昨天|今天|前天|\d{1,2}:\d{2}|\d{4}-\d{2}-\d{2}|编辑于\s*\d+[天小时分钟]前|编辑于\s*\d{2}-\d{2}|发布于|更新于/)) {
+                  publishTime = timeText;
+                  if (index < 3) {
+                    debugInfo.push(`✓ 策略2找到时间: ${publishTime} 使用选择器: ${timeSelector}`);
+                  }
+                  break;
+                }
+
+                // 特殊处理：如果包含数字和"w"（可能是浏览量），跳过
+                if (timeText.match(/\d+\.?\d*w/)) {
+                  if (index < 3) {
+                    debugInfo.push(`跳过浏览量数据: ${timeText}`);
+                  }
+                  continue;
+                }
               }
             }
           }
@@ -747,12 +801,14 @@ async function processExtractedPosts(
       const isAlreadySeen = seenPosts.includes(post.url);
 
       if (isKeywordMatch) {
-        // 检查时间是否在10小时内
-        const isRecent = (post as any).isRecent !== false; // 默认为true，除非明确为false
-        if (!isRecent) {
-          customLogger.info(`跳过超过10小时的帖子: ${post.previewTitle} (${post.publishTime})`);
-          continue;
-        }
+        // 暂时禁用10小时过滤，因为时间提取还有问题
+        // TODO: 修复时间提取后重新启用
+        // const isRecent = (post as any).isRecent !== false;
+        // if (!isRecent) {
+        //   customLogger.info(`跳过超过10小时的帖子: ${post.previewTitle} (${post.publishTime})`);
+        //   continue;
+        // }
+        customLogger.debug(`处理帖子: ${post.previewTitle} (${post.publishTime})`);
 
         matchedPosts.push(post);
 

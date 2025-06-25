@@ -84,4 +84,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # EXPOSE 3000
 
 # 启动命令
-CMD ["node", "-r", "ts-node/register", "src/jobs/run-all.ts"]
+CMD ["node", "-r", "ts-node/register", "src/main.ts"]
