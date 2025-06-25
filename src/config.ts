@@ -42,9 +42,7 @@ export const sgpmConfig: SgpmConfig = {
     'https://www.popmart.com/sg/products/3877/THE-MONSTERS-Wacky-Mart-Series-Earphone-Case',
     'https://www.popmart.com/sg/products/1149/LABUBU-HIDE-AND-SEEK-IN-SINGAPORE-SERIES-Vinyl-Plush-Doll-Pendant',
     'https://www.popmart.com/sg/products/1712/THE-MONSTERS-COCA-COLA-SERIES-Vinyl-Face-Blind-Box',
-    'https://www.popmart.com/sg/products/4123/LABUBU-THE-MONSTERS-TASTY-MACARONS-SERIES-Vinyl-Face-Blind-Box',
-    'https://www.popmart.com/sg/pop-now/set/100',
-    'https://www.popmart.com/sg/products/1740/THE-MONSTERS-%C3%97-One-Piece-Series-Figures'
+    'https://www.popmart.com/sg/products/4123/LABUBU-THE-MONSTERS-TASTY-MACARONS-SERIES-Vinyl-Face-Blind-Box'
   ],
   statusFile: 'sgpm-products-status.json',
 };
