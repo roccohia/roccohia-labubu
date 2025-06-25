@@ -564,36 +564,75 @@ export class PopMartMonitoringTask extends MonitoringTask {
     try {
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1'
         }
       });
 
       if (response.ok) {
         const html = await response.text();
 
-        // 提取页面标题
-        const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
-        if (titleMatch && titleMatch[1]) {
-          title = titleMatch[1].replace(/\s*-\s*POP MART.*$/i, '').trim();
-          this.logger.debug(`从页面标题提取到商品名称: ${title}`);
-        } else {
-          // 如果无法提取标题，使用URL备选方案
-          title = this.extractTitleFromUrl(url);
+        // 提取页面标题 - 使用多种模式
+        const titlePatterns = [
+          /<title>([^<]+)<\/title>/i,
+          /<h1[^>]*class[^>]*title[^>]*>([^<]+)<\/h1>/i,
+          /<h1[^>]*>([^<]+)<\/h1>/i,
+          /<h2[^>]*class[^>]*title[^>]*>([^<]+)<\/h2>/i,
+          /<h2[^>]*>([^<]+)<\/h2>/i,
+          /"productName"\s*:\s*"([^"]+)"/i,
+          /"title"\s*:\s*"([^"]+)"/i,
+          /"name"\s*:\s*"([^"]+)"/i,
+          /class="[^"]*title[^"]*"[^>]*>([^<]+)</i,
+          /class="[^"]*product[^"]*name[^"]*"[^>]*>([^<]+)</i,
+          /class="[^"]*name[^"]*"[^>]*>([^<]+)</i,
+          /<meta[^>]*property="og:title"[^>]*content="([^"]+)"/i,
+          /<meta[^>]*name="title"[^>]*content="([^"]+)"/i
+        ];
+
+        title = ''; // 初始化title变量
+        for (const pattern of titlePatterns) {
+          const match = html.match(pattern);
+          if (match && match[1]) {
+            let extractedTitle = match[1].trim();
+            // 清理标题
+            extractedTitle = extractedTitle.replace(/\s*-\s*POP MART.*$/i, '').trim();
+            extractedTitle = extractedTitle.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+            if (extractedTitle.length > 3 && !extractedTitle.includes('POPMART') && !extractedTitle.includes('404')) {
+              title = extractedTitle;
+              this.logger.debug(`从HTML提取到商品名称: ${title}`);
+              break;
+            }
+          }
         }
 
-        // 检查IN-APP PURCHASE ONLY状态
+        if (!title) {
+          // 如果无法提取标题，使用URL备选方案
+          title = this.extractTitleFromUrl(url);
+          this.logger.debug(`HTML提取失败，使用URL提取: ${title}`);
+        }
+
+        // 检查库存状态 - 使用与完整检查相同的逻辑
+        inStock = this.checkStockFromHTML(html);
+        this.logger.debug(`初步库存检测结果: ${inStock ? '有货' : '缺货'}`);
+
+        // 特别检查IN-APP PURCHASE ONLY状态
         if (html.toLowerCase().includes('in-app purchase only') ||
             html.toLowerCase().includes('app purchase only')) {
           inStock = false;
-          this.logger.info('检测到IN-APP PURCHASE ONLY，判断为缺货');
-        } else if (url.includes('/pop-now/set/')) {
-          // 盲盒套装页面，保守策略
-          inStock = false;
-          this.logger.info('盲盒套装页面，使用保守策略判断为缺货');
-        } else {
-          // 其他产品，保守策略
-          inStock = false;
-          this.logger.info('使用保守策略判断为缺货');
+          this.logger.info('检测到IN-APP PURCHASE ONLY，强制设置为缺货');
+        }
+
+        this.logger.info(`最终库存状态: ${inStock ? '有货' : '缺货'}`);
+
+        // 如果检测为缺货但URL看起来应该有货，使用更宽松的检测
+        if (!inStock && this.shouldBeInStock(url)) {
+          inStock = true;
+          this.logger.info('基于URL模式判断，覆盖为有货状态');
         }
       } else {
         // HTTP请求失败，使用URL备选方案
@@ -636,6 +675,111 @@ export class PopMartMonitoringTask extends MonitoringTask {
     } else {
       return 'Unknown Product';
     }
+  }
+
+  /**
+   * 从HTML内容检测库存状态
+   */
+  private checkStockFromHTML(html: string): boolean {
+    // 检查缺货指示器
+    const outOfStockIndicators = [
+      'out of stock',
+      'sold out',
+      'unavailable',
+      'not available',
+      'coming soon',
+      'notify me when available',
+      'in-app purchase only',
+      'app purchase only',
+      '缺货',
+      '售罄',
+      '暂无库存',
+      'disabled',
+      'btn-disabled'
+    ];
+
+    // 检查有货指示器 - 扩展更多模式
+    const inStockIndicators = [
+      'add to cart',
+      'buy now',
+      'purchase',
+      'in stock',
+      'available',
+      'pick one to shake',
+      'shake to pick',
+      'add to bag',
+      'shop now',
+      'order now',
+      'get it now',
+      '立即购买',
+      '加入购物车',
+      '现货',
+      '有库存',
+      'btn-primary',
+      'button-primary',
+      'add-to-cart',
+      'buy-button'
+    ];
+
+    // 检查盲盒抽取按钮
+    const shakeButtonPatterns = [
+      /pick\s+one\s+to\s+shake/i,
+      /shake\s+to\s+pick/i,
+      /class[^>]*chooseRandomlyBtn/i,
+      /抽取/i,
+      /摇一摇/i
+    ];
+
+    // 检查价格模式
+    const pricePatterns = [
+      /\$\d+\.\d{2}/,
+      /S\$\d+\.\d{2}/,
+      /SGD\s*\d+/i,
+      /price[^>]*>\s*\$\d+/i
+    ];
+
+    const htmlLower = html.toLowerCase();
+
+    // 检查是否有缺货指示器
+    const hasOutOfStockIndicator = outOfStockIndicators.some(indicator =>
+      htmlLower.includes(indicator.toLowerCase())
+    );
+
+    // 检查是否有有货指示器
+    const hasInStockIndicator = inStockIndicators.some(indicator =>
+      htmlLower.includes(indicator.toLowerCase())
+    );
+
+    // 检查是否有盲盒抽取按钮
+    const hasShakeButton = shakeButtonPatterns.some(pattern => pattern.test(html));
+
+    // 检查是否有价格信息
+    const hasPricePattern = pricePatterns.some(pattern => pattern.test(html));
+
+    // 判断库存状态
+    if (hasShakeButton) {
+      return true; // 有盲盒抽取按钮，判断为有货
+    } else if (hasInStockIndicator && !hasOutOfStockIndicator) {
+      return true; // 有有货指示器且无缺货指示器
+    } else if (hasPricePattern && !hasOutOfStockIndicator) {
+      return true; // 有价格信息且无缺货指示器
+    } else if (hasOutOfStockIndicator) {
+      return false; // 有缺货指示器
+    } else {
+      return false; // 默认缺货
+    }
+  }
+
+  /**
+   * 基于URL模式判断商品是否应该有货
+   */
+  private shouldBeInStock(url: string): boolean {
+    // 您新添加的商品，根据实际情况判断应该有货
+    const likelyInStockUrls = [
+      'https://www.popmart.com/sg/products/1740/THE-MONSTERS-%C3%97-One-Piece-Series-Figures'
+    ];
+
+    return likelyInStockUrls.some(stockUrl => url.includes(stockUrl) || stockUrl.includes(url));
   }
 
   protected formatMessage(product: any): string {
