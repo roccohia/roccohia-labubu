@@ -6,8 +6,8 @@ import { LoggerInstance } from '../utils/logger';
  * 提供常用的页面操作和数据提取方法
  */
 export class PageScraper {
-  private page: Page;
-  private logger: LoggerInstance;
+  protected page: Page;
+  protected logger: LoggerInstance;
 
   constructor(page: Page, logger: LoggerInstance) {
     this.page = page;
@@ -189,9 +189,13 @@ export class PageScraper {
   /**
    * 安全地执行页面脚本
    */
-  async safeEvaluate<T>(pageFunction: () => T): Promise<T | null> {
+  async safeEvaluate<T>(pageFunction: (...args: any[]) => T, ...args: any[]): Promise<T | null> {
     try {
-      return await this.page.evaluate(pageFunction);
+      if (args.length > 0) {
+        return await this.page.evaluate(pageFunction, ...args);
+      } else {
+        return await this.page.evaluate(pageFunction);
+      }
     } catch (error) {
       this.logger.debug('页面脚本执行失败:', error);
       return null;

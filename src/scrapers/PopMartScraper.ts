@@ -16,17 +16,47 @@ export class PopMartScraper extends PageScraper {
   }
 
   /**
+   * 设置页面反检测
+   */
+  async setupPage(): Promise<void> {
+    const page = (this as any).page;
+
+    // 设置用户代理
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+    // 设置视口
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    // 监听框架分离事件
+    page.on('framedetached', () => {
+      this.logger.warn('检测到框架分离事件');
+    });
+  }
+
+  /**
    * 导航到产品页面
    */
   async navigateToProduct(url: string): Promise<void> {
-    this.logger.info(`成功导航到: ${url}`);
-    await this.navigateToPage(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    
+    this.logger.info(`正在检查商品页面: ${url}`);
+
+    try {
+      await this.navigateToPage(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      this.logger.info(`成功导航到: ${url}`);
+    } catch (error) {
+      this.logger.error(`导航失败: ${url}`, error);
+      throw error;
+    }
+
     // 处理Cookie弹窗
     await this.handleCookiePopup();
-    
-    // 等待页面稳定
-    await this.waitForStable(3000);
+
+    // 等待页面元素加载
+    this.logger.debug('等待页面元素加载');
+    try {
+      await this.waitForStable(3000);
+    } catch (error) {
+      this.logger.warn('页面元素等待过程中出错，继续执行:', error);
+    }
   }
 
   /**

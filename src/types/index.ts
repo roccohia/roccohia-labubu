@@ -29,6 +29,9 @@ export interface ILogger {
 export interface XhsPostData {
   url: string;
   previewTitle: string;
+  publishTime?: string;
+  author?: string;
+  isRecent?: boolean;
 }
 
 /**

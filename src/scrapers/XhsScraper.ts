@@ -1,7 +1,7 @@
 import { Page } from 'puppeteer';
 import { PageScraper } from '../core/PageScraper';
 import { LoggerInstance } from '../utils/logger';
-import { PostData } from '../types';
+import { XhsPostData } from '../types';
 
 /**
  * 小红书专用抓取器
@@ -22,15 +22,73 @@ export class XhsScraper extends PageScraper {
   }
 
   /**
+   * 设置页面和Cookie
+   */
+  async setupPage(): Promise<void> {
+    // 设置反检测
+    await this.setupAntiDetection();
+
+    // 加载Cookie（如果存在）
+    await this.loadCookies();
+  }
+
+  /**
+   * 设置反检测
+   */
+  private async setupAntiDetection(): Promise<void> {
+    const page = (this as any).page;
+
+    // 设置用户代理
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+    // 设置视口
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    // 移除 webdriver 标识
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
+    });
+  }
+
+  /**
+   * 加载Cookie
+   */
+  private async loadCookies(): Promise<void> {
+    try {
+      const fs = require('fs');
+      const cookiesFile = 'xhs-cookies.json';
+
+      if (fs.existsSync(cookiesFile)) {
+        const cookies = JSON.parse(fs.readFileSync(cookiesFile, 'utf-8'));
+        await (this as any).page.setCookie(...cookies);
+        this.logger.info(`已加载 ${cookies.length} 个 cookies`);
+      }
+    } catch (error) {
+      this.logger.debug('Cookie加载失败:', error);
+    }
+  }
+
+  /**
    * 导航到搜索页面
    */
   async navigateToSearch(keyword: string): Promise<void> {
     const searchUrl = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}&type=51`;
     this.logger.info(`导航到搜索页: ${keyword}`);
-    
-    await this.navigateToPage(searchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+
+    try {
+      await this.navigateToPage(searchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+      this.logger.info('页面导航成功');
+    } catch (navError) {
+      this.logger.error('页面导航失败:', navError);
+      throw navError;
+    }
+
+    // 等待页面加载完成
+    this.logger.debug('等待页面内容加载');
     await this.waitForStable(8000);
-    
+
     // 检查页面状态
     const currentUrl = await this.getPageUrl();
     const pageTitle = await this.getPageTitle();
@@ -41,7 +99,7 @@ export class XhsScraper extends PageScraper {
   /**
    * 提取帖子数据
    */
-  async extractPosts(): Promise<PostData[]> {
+  async extractPosts(): Promise<XhsPostData[]> {
     this.logger.info('开始提取帖子数据');
 
     // 先获取页面调试信息
@@ -156,7 +214,7 @@ export class XhsScraper extends PageScraper {
   /**
    * 提取帖子数据
    */
-  private async extractPostsData(selectedSelector: string): Promise<PostData[]> {
+  private async extractPostsData(selectedSelector: string): Promise<XhsPostData[]> {
     const result = await this.safeEvaluate((selector: string) => {
       const posts: any[] = [];
       const debugInfo: any[] = [];
