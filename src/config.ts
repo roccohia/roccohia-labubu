@@ -25,7 +25,7 @@ export const sgpmConfig: SgpmConfig = {
     'https://www.popmart.com/sg/products/1149/LABUBU-HIDE-AND-SEEK-IN-SINGAPORE-SERIES-Vinyl-Plush-Doll-Pendant',
     'https://www.popmart.com/sg/products/1712/THE-MONSTERS-COCA-COLA-SERIES-Vinyl-Face-Blind-Box',
     'https://www.popmart.com/sg/products/4123/LABUBU-THE-MONSTERS-TASTY-MACARONS-SERIES-Vinyl-Face-Blind-Box',
-    'https://www.popmart.com/sg/products/4124/LABUBU-THE-MONSTERS-WINTER-WONDERLAND-SERIES-Vinyl-Face-Blind-Box'
+    'https://www.popmart.com/sg/pop-now/set/141'
   ],
   statusFile: 'sgpm-products-status.json',
 };
