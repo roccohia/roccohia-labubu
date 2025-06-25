@@ -10,9 +10,9 @@
     "run:popmart": "npx ts-node src/main.ts --popmart-only",
     "debug:xhs": "npx ts-node src/main.ts --xhs-only --debug",
     "debug:popmart": "npx ts-node src/main.ts --popmart-only --debug",
-    "legacy:xhs": "npx ts-node src/jobs/xhs-labubu.ts",
-    "legacy:sgpm": "npx ts-node src/jobs/sgpm-labubu.ts",
-    "legacy:all": "npx ts-node src/jobs/run-all.ts"
+    "build": "npx tsc",
+    "lint": "npx tsc --noEmit",
+    "clean": "rm -rf dist node_modules/.cache"
   },
   "keywords": [],
   "author": "",

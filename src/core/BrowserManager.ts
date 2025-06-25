@@ -18,6 +18,53 @@ export class BrowserManager {
   }
 
   /**
+   * 获取浏览器启动参数
+   */
+  private getBrowserArgs(isGitHubActions: boolean): string[] {
+    const baseArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-features=TranslateUI',
+      '--disable-ipc-flooding-protection',
+      '--disable-background-networking',
+      '--disable-default-apps',
+      '--disable-extensions',
+      '--disable-sync',
+      '--disable-translate',
+      '--hide-scrollbars',
+      '--mute-audio',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-gpu',
+      '--disable-software-rasterizer',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-features=VizDisplayCompositor',
+      '--disable-infobars',
+      '--disable-web-security',
+      '--ignore-certificate-errors',
+      '--ignore-certificate-errors-spki-list',
+      '--window-size=1920,1080'
+    ];
+
+    if (isGitHubActions) {
+      baseArgs.push(
+        '--disable-features=site-per-process',
+        '--single-process',
+        '--no-zygote',
+        '--memory-pressure-off',
+        '--max_old_space_size=4096'
+      );
+      this.logger.info('GitHub Actions 环境：使用增强稳定性配置');
+    }
+
+    return baseArgs;
+  }
+
+  /**
    * 启动浏览器（带代理）
    */
   async launchWithProxy(): Promise<{ browser: Browser; page: Page; proxy: ProxyConfig | null }> {
@@ -56,49 +103,7 @@ export class BrowserManager {
 
     const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
 
-    const args = [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--disable-features=TranslateUI',
-      '--disable-ipc-flooding-protection',
-      '--disable-background-networking',
-      '--disable-default-apps',
-      '--disable-extensions',
-      '--disable-sync',
-      '--disable-translate',
-      '--hide-scrollbars',
-      '--mute-audio',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-gpu',
-      '--disable-software-rasterizer',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-features=VizDisplayCompositor',
-      '--disable-infobars',
-      '--disable-web-security',
-      '--ignore-certificate-errors',
-      '--ignore-certificate-errors-spki-list',
-      '--window-size=1920,1080'
-    ];
-
-    if (isGitHubActions) {
-      args.push(
-        '--disable-features=site-per-process',
-        '--single-process',
-        '--no-zygote',
-        '--disable-dev-shm-usage',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding',
-        '--memory-pressure-off',
-        '--max_old_space_size=4096'
-      );
-      this.logger.info('GitHub Actions 环境：使用增强稳定性配置');
-    }
+    const args = this.getBrowserArgs(isGitHubActions);
 
     this.browser = await puppeteer.launch({
       headless: true,
