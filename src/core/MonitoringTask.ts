@@ -188,15 +188,21 @@ export class XhsMonitoringTask extends MonitoringTask {
 
         // 发送通知
         const message = this.formatMessage(post);
-        await this.sendNotification(message);
+        try {
+          await this.sendNotification(message);
 
-        // 标记为已处理
-        seenPosts.push(post.url);
-        newPostCount++;
+          // 只有推送成功后才标记为已处理
+          seenPosts.push(post.url);
+          newPostCount++;
+          this.logger.info(`✅ 帖子推送成功，已记录到去重列表: ${post.previewTitle}`);
 
-        // 限制已处理帖子数量
-        if (seenPosts.length > this.config.maxSeenPosts) {
-          seenPosts.splice(0, seenPosts.length - this.config.maxSeenPosts);
+          // 限制已处理帖子数量
+          if (seenPosts.length > this.config.maxSeenPosts) {
+            seenPosts.splice(0, seenPosts.length - this.config.maxSeenPosts);
+          }
+        } catch (notificationError) {
+          this.logger.error(`❌ 帖子推送失败，不记录到去重列表: ${post.previewTitle}`);
+          // 推送失败时不记录到已处理列表，下次还会尝试推送
         }
 
       } catch (error) {
@@ -226,14 +232,15 @@ export class XhsMonitoringTask extends MonitoringTask {
       second: '2-digit'
     });
 
-    // 使用帖子的发布时间，如果没有则显示"未知"
+    // 使用帖子的发布时间和地区，如果没有则显示"未知"
     const publishTime = post.publishTime || '未知时间';
+    const location = post.location || '';
 
     return `🚨 小红书关键词新帖
 
 📝 标题：${post.previewTitle}
 👤 作者：${post.author || '未知作者'}
-📅 发布时间：${publishTime}
+📅 发布时间：${publishTime}${location ? ` 📍 ${location}` : ''}
 🔗 直达链接：${post.url}
 ⏰ 推送时间：${pushTimeString} (新加坡时间)`;
   }

@@ -296,19 +296,46 @@ export class XhsScraper extends PageScraper {
             return;
           }
 
-          // 抓取时间 - 简化版本
+          // 抓取时间和地区信息
           let publishTime = '时间未知';
-          const allElements = section.querySelectorAll('*');
-          for (const element of allElements) {
-            const text = (element as HTMLElement).innerText?.trim();
-            if (text && text.length > 2 && text.length < 50) {
-              // 检查时间格式
-              if (text.match(/\d+[分时天月年]前/) || 
-                  text.match(/编辑于.*?[前天小时分钟]/) ||
-                  text.match(/发布于.*?[前天小时分钟]/) ||
-                  text.match(/昨天|今天|前天/)) {
-                publishTime = text;
-                break;
+          let location = '';
+
+          // 查找时间和地区信息的span元素
+          const timeSpans = section.querySelectorAll('span[data-v-610be4fa][class="date"][selected-disabled-search]');
+          if (timeSpans.length > 0) {
+            const timeText = timeSpans[0].textContent?.trim();
+            if (timeText) {
+              publishTime = timeText;
+              debugInfo.push(`找到时间span: ${timeText}`);
+            }
+          } else {
+            // 备用方法：查找所有span元素
+            const allSpans = section.querySelectorAll('span');
+            for (const span of allSpans) {
+              const text = span.textContent?.trim();
+              if (text && text.length > 2 && text.length < 50) {
+                // 更精确的时间格式匹配
+                // 1. 时间+地区格式："5天前 上海"、"6-12 山东"
+                if (text.match(/^\d+[分时天月年]前\s+[^\d\s]+$/) ||
+                    text.match(/^\d+-\d+\s+[^\d\s]+$/)) {
+                  publishTime = text;
+                  debugInfo.push(`找到时间地区信息: ${text}`);
+                  break;
+                }
+                // 2. 只有时间的格式："5天前"、"昨天"、"6-12"
+                else if (text.match(/^\d+[分时天月年]前$/) ||
+                         text.match(/^\d+-\d+$/) ||
+                         text.match(/^(昨天|今天|前天)$/)) {
+                  publishTime = text;
+                  debugInfo.push(`找到时间信息: ${text}`);
+                  break;
+                }
+                // 3. 编辑时间格式："编辑于 5天前"
+                else if (text.match(/^编辑于\s*\d+[分时天月年]前/)) {
+                  publishTime = text;
+                  debugInfo.push(`找到编辑时间: ${text}`);
+                  break;
+                }
               }
             }
           }
@@ -332,10 +359,33 @@ export class XhsScraper extends PageScraper {
             }
           }
 
+          // 解析时间和地区
+          let timeOnly = publishTime;
+          let locationOnly = '';
+
+          // 尝试分离时间和地区
+          if (publishTime && publishTime !== '时间未知') {
+            // 匹配"5天前 上海"格式
+            const timeLocationMatch = publishTime.match(/^(.+?)\s+([^0-9\s]+)$/);
+            if (timeLocationMatch) {
+              timeOnly = timeLocationMatch[1].trim();
+              locationOnly = timeLocationMatch[2].trim();
+            }
+            // 匹配"6-12 山东"格式
+            else {
+              const dateLocationMatch = publishTime.match(/^(\d+-\d+)\s+([^0-9\s]+)$/);
+              if (dateLocationMatch) {
+                timeOnly = dateLocationMatch[1].trim();
+                locationOnly = dateLocationMatch[2].trim();
+              }
+            }
+          }
+
           posts.push({
             url: url,
             previewTitle: titleElement.innerText.trim(),
-            publishTime: publishTime,
+            publishTime: timeOnly,
+            location: locationOnly,
             author: author
           });
 

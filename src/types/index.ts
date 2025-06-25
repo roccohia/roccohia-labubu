@@ -30,6 +30,7 @@ export interface XhsPostData {
   url: string;
   previewTitle: string;
   publishTime?: string;
+  location?: string;
   author?: string;
   isRecent?: boolean;
 }
