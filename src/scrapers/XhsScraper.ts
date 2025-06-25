@@ -559,12 +559,42 @@ export class XhsScraper extends PageScraper {
               const titleElement = section.querySelector('.note-title, .title, .content') as HTMLElement;
               if (!titleElement || !titleElement.innerText?.trim()) continue;
 
+              // 尝试提取作者信息
+              let author = '作者未知';
+              const authorSelectors = [
+                '.author-wrapper .author-name',
+                '.user-info .username',
+                '.author',
+                '.username',
+                '.user-name',
+                '.nickname',
+                '[class*="author"]',
+                '[class*="user"]',
+                '.note-item .author',
+                '.footer .author'
+              ];
+
+              for (const authorSelector of authorSelectors) {
+                const authorElement = section.querySelector(authorSelector) as HTMLElement;
+                if (authorElement && authorElement.innerText?.trim()) {
+                  const authorText = authorElement.innerText.trim();
+                  // 过滤掉明显不是作者名的文本
+                  if (authorText.length > 0 && authorText.length < 50 &&
+                      !authorText.includes('点赞') && !authorText.includes('收藏') &&
+                      !authorText.includes('分享') && !authorText.includes('评论') &&
+                      !authorText.includes('关注') && !authorText.includes('粉丝')) {
+                    author = authorText;
+                    break;
+                  }
+                }
+              }
+
               posts.push({
                 url: url,
                 previewTitle: titleElement.innerText.trim(),
                 publishTime: '待提取',
                 location: '',
-                author: '作者未知'
+                author: author
               });
             } catch (error) {
               // 忽略单个元素的错误

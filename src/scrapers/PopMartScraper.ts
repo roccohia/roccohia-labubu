@@ -107,29 +107,60 @@ export class PopMartScraper extends PageScraper {
   private extractProductInfoFromHTML(html: string, pageTitle: string, url: string): ProductInfo {
     // 提取产品标题
     let title = 'Unknown Product';
-    
-    // 优先使用页面标题
-    if (pageTitle && pageTitle !== 'POPMART' && !pageTitle.includes('404')) {
-      title = pageTitle.replace(/\s*\|\s*POPMART.*$/i, '').trim();
+
+    // 首先尝试从HTML中提取真实的产品标题
+    const titlePatterns = [
+      /<h1[^>]*class[^>]*title[^>]*>([^<]+)<\/h1>/i,
+      /<h1[^>]*>([^<]+)<\/h1>/i,
+      /<title>([^<]+)<\/title>/i,
+      /"productName"\s*:\s*"([^"]+)"/i,
+      /"title"\s*:\s*"([^"]+)"/i,
+      /class="[^"]*title[^"]*"[^>]*>([^<]+)</i
+    ];
+
+    for (const pattern of titlePatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        let extractedTitle = match[1].trim();
+        // 清理标题
+        extractedTitle = extractedTitle.replace(/\s*\|\s*POPMART.*$/i, '').trim();
+        extractedTitle = extractedTitle.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+        if (extractedTitle.length > 3 && !extractedTitle.includes('POPMART') && !extractedTitle.includes('404')) {
+          title = extractedTitle;
+          this.logger.debug(`从HTML提取到产品标题: ${title}`);
+          break;
+        }
+      }
     }
-    
-    // 如果页面标题不可用，从URL提取
-    if (!title || title === 'Unknown Product') {
+
+    // 如果HTML提取失败，使用页面标题
+    if (title === 'Unknown Product' && pageTitle && pageTitle !== 'POPMART' && !pageTitle.includes('404')) {
+      title = pageTitle.replace(/\s*\|\s*POPMART.*$/i, '').trim();
+      this.logger.debug(`使用页面标题: ${title}`);
+    }
+
+    // 最后才从URL提取
+    if (!title || title === 'Unknown Product' || title.length < 3) {
       const urlParts = url.split('/');
       const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
-      title = productPart.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      title = decodeURIComponent(productPart).replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      this.logger.debug(`从URL提取产品标题: ${title}`);
     }
 
     // 检查库存状态
     let inStock = false;
-    
-    // 检查缺货指示器
+
+    // 检查缺货指示器（包括新的IN-APP PURCHASE ONLY）
     const outOfStockIndicators = [
       'out of stock',
       'sold out',
       'unavailable',
       'not available',
       'coming soon',
+      'notify me when available',
+      'in-app purchase only',  // 新增：应用内购买专用
+      'app purchase only',
       '缺货',
       '售罄',
       '暂无库存',
@@ -137,7 +168,7 @@ export class PopMartScraper extends PageScraper {
       'btn-disabled'
     ];
 
-    const hasOutOfStockIndicator = outOfStockIndicators.some(indicator => 
+    const hasOutOfStockIndicator = outOfStockIndicators.some(indicator =>
       html.toLowerCase().includes(indicator.toLowerCase())
     );
 
@@ -173,8 +204,15 @@ export class PopMartScraper extends PageScraper {
     // 检查价格信息（有价格通常表示有货）
     const hasPricePattern = /\$\d+|\$\s*\d+|s\$\d+|s\$\s*\d+/i.test(html);
 
+    // 特别检查IN-APP PURCHASE ONLY状态
+    const hasInAppPurchaseOnly = html.toLowerCase().includes('in-app purchase only') ||
+                                html.toLowerCase().includes('app purchase only');
+
     // 判断库存状态
-    if (hasShakeButton) {
+    if (hasInAppPurchaseOnly) {
+      inStock = false;
+      this.logger.info('检测到"IN-APP PURCHASE ONLY"，判断为缺货（应用内购买专用）');
+    } else if (hasShakeButton) {
       inStock = true;
       this.logger.info('检测到盲盒抽取按钮，判断为有货');
     } else if (hasInStockIndicator && !hasOutOfStockIndicator) {

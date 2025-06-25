@@ -228,6 +228,13 @@ export class XhsMonitoringTask extends MonitoringTask {
 
         keywordMatchCount++;
 
+        // 检查帖子是否在2天内（新增时间过滤）
+        const isWithin2Days = this.isPostWithin2Days(post.publishTime || '时间未知');
+        if (!isWithin2Days) {
+          this.logDebug(`帖子超过2天，跳过: ${post.previewTitle} (${post.publishTime})`);
+          continue;
+        }
+
         // 再检查是否已经处理过（去重检查）
         if (seenPosts.includes(post.url)) {
           duplicateCount++;
@@ -288,6 +295,82 @@ export class XhsMonitoringTask extends MonitoringTask {
 
     if (newPostCount === 0) {
       this.logger.info('暂无符合条件的新帖子');
+    }
+  }
+
+  /**
+   * 检查帖子是否在2天内
+   */
+  private isPostWithin2Days(publishTime: string): boolean {
+    if (!publishTime || publishTime === '时间未知' || publishTime === '待提取') {
+      // 如果时间未知，为了避免错过重要信息，默认认为是最近的
+      this.logDebug('时间信息未知，默认认为在2天内');
+      return true;
+    }
+
+    try {
+      const now = new Date();
+      const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+      // 处理不同的时间格式
+      if (publishTime.includes('分钟前')) {
+        // X分钟前 - 肯定在2天内
+        return true;
+      } else if (publishTime.includes('小时前')) {
+        // X小时前 - 肯定在2天内
+        return true;
+      } else if (publishTime.includes('天前')) {
+        // X天前
+        const match = publishTime.match(/(\d+)天前/);
+        if (match) {
+          const daysAgo = parseInt(match[1]);
+          return daysAgo <= 2;
+        }
+      } else if (publishTime.includes('昨天') || publishTime === '昨天') {
+        // 昨天 - 在2天内
+        return true;
+      } else if (publishTime.includes('今天') || publishTime === '今天' || publishTime.includes('刚刚')) {
+        // 今天或刚刚 - 在2天内
+        return true;
+      } else if (publishTime.includes('前天')) {
+        // 前天 - 在2天内
+        return true;
+      } else if (publishTime.match(/\d{1,2}-\d{1,2}/)) {
+        // MM-DD格式，需要判断是否在2天内
+        const match = publishTime.match(/(\d{1,2})-(\d{1,2})/);
+        if (match) {
+          const month = parseInt(match[1]);
+          const day = parseInt(match[2]);
+          const currentYear = now.getFullYear();
+          const postDate = new Date(currentYear, month - 1, day);
+
+          // 如果日期在未来，说明是去年的
+          if (postDate > now) {
+            postDate.setFullYear(currentYear - 1);
+          }
+
+          return postDate >= twoDaysAgo;
+        }
+      } else if (publishTime.includes('编辑于') || publishTime.includes('发布于')) {
+        // 处理"编辑于 X天前"格式
+        if (publishTime.includes('天前')) {
+          const match = publishTime.match(/(\d+)天前/);
+          if (match) {
+            const daysAgo = parseInt(match[1]);
+            return daysAgo <= 2;
+          }
+        } else if (publishTime.includes('小时前') || publishTime.includes('分钟前')) {
+          return true;
+        }
+      }
+
+      // 如果无法解析时间格式，为了避免错过重要信息，默认认为是最近的
+      this.logDebug(`无法解析时间格式: ${publishTime}，默认认为在2天内`);
+      return true;
+
+    } catch (error) {
+      this.logDebug(`时间解析出错: ${publishTime}，默认认为在2天内`);
+      return true;
     }
   }
 
