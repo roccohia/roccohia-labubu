@@ -49,9 +49,10 @@ async function performEnvironmentChecks(): Promise<void> {
   logger.info('开始环境检查...');
 
   // 验证环境变量
-  const envValidation = validateEnvironmentVariables();
+  const requiredVars = ['BOT_TOKEN', 'CHAT_ID'];
+  const envValidation = validateEnvironmentVariables(requiredVars);
   if (!envValidation.valid) {
-    throw new Error(`环境变量验证失败: ${envValidation.errors.join(', ')}`);
+    throw new Error(`环境变量验证失败: ${envValidation.missing.join(', ')}`);
   }
 
   // 验证配置

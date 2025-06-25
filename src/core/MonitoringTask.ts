@@ -99,9 +99,14 @@ export class XhsMonitoringTask extends MonitoringTask {
   }
 
   protected async runMonitoring(): Promise<void> {
-    // 实现小红书监控逻辑
-    // 这里会使用 XhsScraper
     this.logger.info('小红书监控逻辑待实现');
+    this.logger.warn('当前使用简化实现，完整功能请使用 legacy 命令');
+
+    // TODO: 实现完整的小红书监控逻辑
+    // const scraper = new XhsScraper(this.browserManager.getPage(), this.logger);
+    // await scraper.navigateToSearch(this.config.searchKeyword);
+    // const posts = await scraper.extractPosts();
+    // ... 处理帖子和发送通知
   }
 
   protected formatMessage(post: any): string {
@@ -144,9 +149,16 @@ export class PopMartMonitoringTask extends MonitoringTask {
   }
 
   protected async runMonitoring(): Promise<void> {
-    // 实现PopMart监控逻辑
-    // 这里会使用 PopMartScraper
     this.logger.info('PopMart监控逻辑待实现');
+    this.logger.warn('当前使用简化实现，完整功能请使用 legacy 命令');
+
+    // TODO: 实现完整的PopMart监控逻辑
+    // const scraper = new PopMartScraper(this.browserManager.getPage(), this.logger);
+    // for (const url of this.config.productUrls) {
+    //   await scraper.navigateToProduct(url);
+    //   const result = await scraper.checkProductStatus(url);
+    //   ... 处理结果和发送通知
+    // }
   }
 
   protected formatMessage(product: any): string {

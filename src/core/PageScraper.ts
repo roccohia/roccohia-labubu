@@ -22,6 +22,21 @@ export class PageScraper {
   }
 
   /**
+   * 安全导航到页面
+   */
+  async navigateToPage(url: string, options?: { waitUntil?: 'networkidle2' | 'domcontentloaded'; timeout?: number }): Promise<void> {
+    const { waitUntil = 'networkidle2', timeout = 60000 } = options || {};
+
+    try {
+      await this.page.goto(url, { waitUntil, timeout });
+      this.logger.info('页面导航成功');
+    } catch (navError) {
+      this.logger.error('页面导航失败:', navError);
+      throw navError;
+    }
+  }
+
+  /**
    * 安全地获取页面内容
    */
   async getPageContent(): Promise<string> {
