@@ -45,15 +45,21 @@ export abstract class MonitoringTask {
     this.logger.info(`=== 开始执行${this.taskName}监控任务 ===`);
 
     try {
-      // 启动浏览器
-      await this.setupBrowser();
-      
-      // 执行具体的监控逻辑
-      await this.runMonitoring();
-      
+      // 设置任务超时时间（18分钟，留2分钟给清理工作）
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`${this.taskName}监控任务超时（18分钟）`));
+        }, 18 * 60 * 1000);
+      });
+
+      await Promise.race([
+        this.runTaskWithSetup(),
+        timeoutPromise
+      ]);
+
       const duration = Date.now() - startTime;
       this.logger.success(`${this.taskName}监控任务完成，耗时: ${duration}ms`);
-      
+
     } catch (error) {
       this.logger.error(`${this.taskName}监控任务失败:`, error);
       throw error;
@@ -61,6 +67,17 @@ export abstract class MonitoringTask {
       // 清理资源
       await this.cleanup();
     }
+  }
+
+  /**
+   * 运行任务（包含浏览器设置）
+   */
+  private async runTaskWithSetup(): Promise<void> {
+    // 启动浏览器
+    await this.setupBrowser();
+
+    // 执行具体的监控逻辑
+    await this.runMonitoring();
   }
 
   /**
@@ -192,6 +209,7 @@ export class XhsMonitoringTask extends MonitoringTask {
         // 发送通知
         const message = this.formatMessage(post);
         try {
+          this.logDebug(`准备发送通知: ${post.previewTitle}`);
           await this.sendNotification(message);
 
           // 只有推送成功后才标记为已处理
@@ -199,7 +217,7 @@ export class XhsMonitoringTask extends MonitoringTask {
           newPostCount++;
           this.logger.info(`✅ 帖子推送成功，已记录到去重列表: ${post.previewTitle}`);
         } catch (notificationError) {
-          this.logger.error(`❌ 帖子推送失败，不记录到去重列表: ${post.previewTitle}`);
+          this.logger.error(`❌ 帖子推送失败，不记录到去重列表: ${post.previewTitle}`, notificationError);
           // 推送失败时不记录到已处理列表，下次还会尝试推送
         }
 
@@ -210,16 +228,21 @@ export class XhsMonitoringTask extends MonitoringTask {
 
     // 只有当有新的成功推送时才更新状态文件
     if (newlySeenPosts.length > 0) {
-      const updatedSeenPosts = [...seenPosts, ...newlySeenPosts];
+      try {
+        const updatedSeenPosts = [...seenPosts, ...newlySeenPosts];
 
-      // 限制已处理帖子数量
-      if (updatedSeenPosts.length > this.config.maxSeenPosts) {
-        updatedSeenPosts.splice(0, updatedSeenPosts.length - this.config.maxSeenPosts);
+        // 限制已处理帖子数量
+        if (updatedSeenPosts.length > this.config.maxSeenPosts) {
+          updatedSeenPosts.splice(0, updatedSeenPosts.length - this.config.maxSeenPosts);
+        }
+
+        // 保存状态
+        this.statusManager.set(updatedSeenPosts);
+        this.logger.info(`✅ 状态文件已更新，新增 ${newlySeenPosts.length} 个已处理帖子`);
+      } catch (saveError) {
+        this.logger.error('保存状态文件失败:', saveError);
+        // 即使保存失败，也不要抛出错误，避免影响整个任务
       }
-
-      // 保存状态
-      this.statusManager.set(updatedSeenPosts);
-      this.logger.info(`✅ 状态文件已更新，新增 ${newlySeenPosts.length} 个已处理帖子`);
     } else {
       this.logger.info(`📝 无新的成功推送，状态文件保持不变`);
     }

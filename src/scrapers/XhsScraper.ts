@@ -102,6 +102,28 @@ export class XhsScraper extends PageScraper {
   async extractPosts(): Promise<XhsPostData[]> {
     this.logger.info('开始提取帖子数据');
 
+    try {
+      // 设置提取超时时间（10分钟）
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('帖子提取超时（10分钟）'));
+        }, 10 * 60 * 1000);
+      });
+
+      return await Promise.race([
+        this.extractPostsInternal(),
+        timeoutPromise
+      ]);
+    } catch (error) {
+      this.logger.error('帖子提取失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 内部帖子提取逻辑
+   */
+  private async extractPostsInternal(): Promise<XhsPostData[]> {
     // 先获取页面调试信息
     const debugInfo = await this.getDebugInfo();
     this.logDebugInfo(debugInfo);
@@ -300,18 +322,36 @@ export class XhsScraper extends PageScraper {
           let publishTime = '时间未知';
           let location = '';
 
-          // 简化时间提取 - 暂时使用相对时间
-          // 由于小红书搜索页面的时间信息提取比较复杂，暂时使用简化方案
-          const now = new Date();
-          const timeString = now.toLocaleString('zh-CN', {
-            timeZone: 'Asia/Singapore',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-          });
-          publishTime = `今日 ${timeString}`;
-          debugInfo.push(`使用当前时间: ${publishTime}`);
+          // 尝试从搜索页面提取时间信息
+          // 方法1：查找可能包含时间的元素
+          const allElements = section.querySelectorAll('*');
+          for (const element of allElements) {
+            const text = element.textContent?.trim();
+            if (text && text.length > 3 && text.length < 30) {
+              // 匹配真实的时间格式："1小时前 中国香港", "5天前 上海", "昨天 北京"
+              if (text.match(/^\d+[分时天月年]前\s+[\u4e00-\u9fa5]+$/) ||
+                  text.match(/^(昨天|今天|前天)\s+[\u4e00-\u9fa5]+$/) ||
+                  text.match(/^\d+-\d+\s+[\u4e00-\u9fa5]+$/)) {
+                publishTime = text;
+                debugInfo.push(`找到真实时间: ${text}`);
+                break;
+              }
+            }
+          }
+
+          // 方法2：如果没找到真实时间，使用当前时间
+          if (publishTime === '时间未知') {
+            const now = new Date();
+            const timeString = now.toLocaleString('zh-CN', {
+              timeZone: 'Asia/Singapore',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+            publishTime = `今日 ${timeString}`;
+            debugInfo.push(`使用当前时间: ${publishTime}`);
+          }
 
           // 抓取作者
           const authorSelectors = [

@@ -20,7 +20,7 @@ env:
 jobs:
   run-labubu:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # 设置超时时间
+    timeout-minutes: 20  # 减少超时时间，更快发现问题
 
     strategy:
       fail-fast: false  # 即使一个任务失败，其他任务继续执行
@@ -103,7 +103,7 @@ jobs:
       - name: Run Labubu monitoring tasks
         run: |
           npx ts-node src/main.ts
-        timeout-minutes: 25
+        timeout-minutes: 18
 
       - name: Upload debug artifacts on failure
         if: failure()
