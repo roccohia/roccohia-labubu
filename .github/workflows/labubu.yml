@@ -108,11 +108,12 @@ jobs:
             console.log('Configuration validation passed');
           "
 
-      - name: Run Labubu monitoring tasks (Optimized)
+      - name: Run Labubu monitoring tasks (Fallback to Original)
         run: |
-          # 运行优化版监控任务并捕获输出
-          npm run optimized 2>&1 | tee monitoring.log
-        timeout-minutes: 20  # 优化版本使用更短超时
+          # 临时回退到原版本，因为优化版本遇到问题
+          echo "使用原版本监控任务（优化版本调试中）"
+          npm start 2>&1 | tee monitoring.log
+        timeout-minutes: 25  # 原版本超时时间
 
       - name: Check for security verification
         if: always()  # 总是检查，无论监控任务是否成功
