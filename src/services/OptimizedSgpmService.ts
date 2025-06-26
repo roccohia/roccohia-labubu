@@ -3,8 +3,8 @@ import { SgpmConfig } from '../types';
 import { getSgpmEnvConfig } from '../config-sgpm';
 import { StatusManager } from '../utils/statusManager';
 import { sendTelegramMessage } from '../utils/sendTelegramMessage';
-import { getHttpClient } from '../utils/OptimizedHttpClient';
 import { productCache, globalCache } from '../utils/OptimizedCacheManager';
+import axios from 'axios';
 
 /**
  * SGPM产品状态接口
@@ -62,7 +62,6 @@ export class OptimizedSgpmService {
   private logger: LoggerInstance;
   private statusManager: StatusManager<SgpmStatusRecord>;
   private envConfig: ReturnType<typeof getSgpmEnvConfig>;
-  private httpClient: ReturnType<typeof getHttpClient>;
   
   // 性能统计
   private stats = {
@@ -87,7 +86,6 @@ export class OptimizedSgpmService {
     this.config = config;
     this.logger = logger;
     this.envConfig = getSgpmEnvConfig();
-    this.httpClient = getHttpClient(logger);
     
     // 初始化状态管理器
     this.statusManager = new StatusManager<SgpmStatusRecord>(
@@ -222,19 +220,18 @@ export class OptimizedSgpmService {
       };
     }
     
-    // 2. 网络请求
+    // 2. 网络请求 - 使用原始axios方法，与原始SgmpService保持一致
     this.stats.networkRequests++;
     this.logger.debug(`🌐 网络请求: ${url}`);
 
     try {
-      const response = await this.httpClient.get(url, {
-        cache: true,
-        cacheTTL: 2 * 60 * 1000, // 2分钟HTTP缓存
-        timeout: this.config.timeout,
+      const response = await axios.get(url, {
         headers: {
-          ...this.config.headers,
-          'User-Agent': this.config.userAgent
-        }
+          'User-Agent': this.config.userAgent,
+          ...this.config.headers
+        },
+        timeout: this.config.timeout,
+        validateStatus: (status) => status < 500 // 接受所有非5xx状态码
       });
 
       this.logger.debug(`✅ 网络请求成功: ${url} (状态: ${response.status})`);
@@ -273,10 +270,10 @@ export class OptimizedSgpmService {
         };
       }
     } catch (error: any) {
-      // 安全地提取错误信息，避免循环引用
-      const errorMsg = error?.message || error?.code || String(error) || 'Unknown error';
+      // 完全安全地提取错误信息，避免循环引用
+      const errorMsg = error?.message || error?.code || 'Network request failed';
       const statusCode = error?.response?.status || error?.status || 'No response';
-      const errorType = error?.name || error?.constructor?.name || 'Error';
+      const errorType = error?.name || 'Error';
 
       this.logger.error(`❌ 网络请求失败: ${url} (${errorType}: ${errorMsg}, 状态: ${statusCode})`);
       this.stats.errors++;
