@@ -42,9 +42,9 @@ export class XhsService {
     for (const post of posts) {
       this.logger.debug(`处理帖子: ${post.previewTitle} (${post.publishTime || '时间未知'})`);
 
-      // 时间过滤：只处理2天内的帖子
-      if (!this.isPostWithin2Days(post.publishTime)) {
-        this.logger.debug(`帖子超过2天，跳过: ${post.previewTitle} (${post.publishTime})`);
+      // 时间过滤：只处理5小时内的帖子
+      if (!this.isPostWithin5Hours(post.publishTime)) {
+        this.logger.debug(`帖子超过5小时，跳过: ${post.previewTitle} (${post.publishTime})`);
         continue;
       }
 
@@ -105,58 +105,73 @@ export class XhsService {
   }
 
   /**
-   * 检查帖子是否在2天内
+   * 检查帖子是否在5小时内
    */
-  private isPostWithin2Days(publishTime?: string): boolean {
+  private isPostWithin5Hours(publishTime?: string): boolean {
     if (!publishTime) return true; // 如果没有时间信息，默认通过
 
     const now = new Date();
-    const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+    const fiveHoursAgo = new Date(now.getTime() - 5 * 60 * 60 * 1000); // 5小时前
 
     // 处理各种时间格式
-    if (publishTime.includes('分钟前') || publishTime.includes('小时前')) {
-      return true; // 分钟或小时前肯定在2天内
+    if (publishTime.includes('分钟前') || publishTime.includes('刚刚')) {
+      return true; // 分钟前肯定在5小时内
     }
 
-    if (publishTime.includes('天前')) {
-      const daysMatch = publishTime.match(/(\d+)天前/);
-      if (daysMatch) {
-        const days = parseInt(daysMatch[1]);
-        return days <= 2;
+    if (publishTime.includes('小时前')) {
+      const hoursMatch = publishTime.match(/(\d+)小时前/);
+      if (hoursMatch) {
+        const hours = parseInt(hoursMatch[1]);
+        return hours <= 5; // 只接受5小时内的帖子
       }
+      return true; // 如果无法解析具体小时数，默认通过
     }
 
-    if (publishTime.includes('昨天') || publishTime.includes('今天') || publishTime.includes('前天') || publishTime.includes('刚刚')) {
-      return true;
+    // 天前的帖子都超过5小时，直接拒绝
+    if (publishTime.includes('天前')) {
+      return false;
     }
 
-    // 处理 MM-DD 格式
+    // 昨天、前天的帖子都超过5小时，直接拒绝
+    if (publishTime.includes('昨天') || publishTime.includes('前天')) {
+      return false;
+    }
+
+    // 今天的帖子需要进一步判断
+    if (publishTime.includes('今天')) {
+      return true; // 今天的帖子可能在5小时内，默认通过
+    }
+
+    // 处理 MM-DD 格式（这些都是较早的帖子，超过5小时）
     const dateMatch = publishTime.match(/(\d{1,2})-(\d{1,2})/);
     if (dateMatch) {
-      const month = parseInt(dateMatch[1]);
-      const day = parseInt(dateMatch[2]);
-      const postDate = new Date(now.getFullYear(), month - 1, day);
-      
-      // 如果日期在未来，说明是去年的
-      if (postDate > now) {
-        postDate.setFullYear(now.getFullYear() - 1);
-      }
-      
-      return postDate >= twoDaysAgo;
+      return false; // MM-DD格式的帖子都是较早的，超过5小时
+    }
+
+    // 处理 "编辑于 X小时前" 格式
+    const editHoursMatch = publishTime.match(/编辑于\s*(\d+)小时前/);
+    if (editHoursMatch) {
+      const hours = parseInt(editHoursMatch[1]);
+      return hours <= 5;
     }
 
     // 处理 "编辑于 X天前" 格式
-    const editMatch = publishTime.match(/编辑于\s*(\d+)天前/);
-    if (editMatch) {
-      const days = parseInt(editMatch[1]);
-      return days <= 2;
+    const editDaysMatch = publishTime.match(/编辑于\s*(\d+)天前/);
+    if (editDaysMatch) {
+      return false; // 天前的都超过5小时
+    }
+
+    // 处理 "发布于 X小时前" 格式
+    const publishHoursMatch = publishTime.match(/发布于\s*(\d+)小时前/);
+    if (publishHoursMatch) {
+      const hours = parseInt(publishHoursMatch[1]);
+      return hours <= 5;
     }
 
     // 处理 "发布于 X天前" 格式
-    const publishMatch = publishTime.match(/发布于\s*(\d+)天前/);
-    if (publishMatch) {
-      const days = parseInt(publishMatch[1]);
-      return days <= 2;
+    const publishDaysMatch = publishTime.match(/发布于\s*(\d+)天前/);
+    if (publishDaysMatch) {
+      return false; // 天前的都超过5小时
     }
 
     // 默认通过（如果无法解析时间格式）
