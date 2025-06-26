@@ -32,8 +32,6 @@ jobs:
       # SGPM专用的Telegram配置
       SGPM_BOT_TOKEN: ${{ secrets.SGPM_BOT_TOKEN }}
       SGPM_CHAT_ID: ${{ secrets.SGPM_CHAT_ID }}
-      # 代理配置
-      PROXY_LIST: ${{ secrets.PROXY_LIST }}
       # 调试模式
       DEBUG_MODE: ${{ vars.DEBUG_MODE || 'false' }}
 

@@ -224,13 +224,16 @@ export class OptimizedSgpmService {
     this.stats.networkRequests++;
     this.logger.debug(`🌐 网络请求: ${url}`);
 
-    // 添加随机延迟，避免被识别为爬虫
-    const delay = Math.random() * 2000 + 1000; // 1-3秒随机延迟
-    await new Promise(resolve => setTimeout(resolve, delay));
-
     try {
-      // 尝试多种策略绕过反爬虫
-      const response = await this.makeRequestWithAntiDetection(url);
+      // 简单直接的请求，不使用代理
+      const response = await axios.get(url, {
+        headers: {
+          'User-Agent': this.config.userAgent,
+          ...this.config.headers
+        },
+        timeout: this.config.timeout,
+        validateStatus: (status) => status < 500
+      });
 
       this.logger.info(`✅ 网络请求成功: ${url} (状态: ${response.status})`);
 
@@ -239,22 +242,17 @@ export class OptimizedSgpmService {
         const html = response.data;
         this.logger.info(`📄 HTML内容长度: ${html.length} 字符`);
 
-        // 检查是否是反爬虫页面
-        if (this.isAntiCrawlerPage(html)) {
-          this.logger.warn(`🚫 所有策略都遇到反爬虫页面: ${url}`);
-
-          // 使用智能推断策略
-          const inferredStatus = this.inferStockStatus(url);
-          this.logger.info(`🤖 智能推断结果: ${inferredStatus ? '可能有货' : '状态未知'}`);
-
+        // 简单检查：如果HTML太短，可能是错误页面
+        if (html.length < 1000) {
+          this.logger.warn(`⚠️ HTML内容过短，可能是错误页面: ${url}`);
           const fallbackInfo = this.extractProductInfoFromUrl(url);
           return {
             url,
             title: fallbackInfo.title,
-            inStock: inferredStatus,
+            inStock: false,
             checkTime: Date.now(),
             fromCache: false,
-            error: !inferredStatus // 如果推断为有货，不标记为错误
+            error: true
           };
         }
 
@@ -405,131 +403,7 @@ export class OptimizedSgpmService {
     }
   }
 
-  /**
-   * 高级反爬虫请求方法
-   */
-  private async makeRequestWithAntiDetection(url: string): Promise<any> {
-    const strategies = [
-      // 策略1: 标准浏览器请求
-      {
-        name: 'standard_browser',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Sec-Fetch-User': '?1',
-          'Cache-Control': 'max-age=0'
-        }
-      },
-      // 策略2: 移动浏览器
-      {
-        name: 'mobile_browser',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1'
-        }
-      },
-      // 策略3: 简化请求
-      {
-        name: 'simple_request',
-        headers: {
-          'User-Agent': this.config.userAgent,
-          ...this.config.headers
-        }
-      }
-    ];
 
-    for (const strategy of strategies) {
-      try {
-        this.logger.debug(`🔄 尝试策略: ${strategy.name}`);
-
-        const response = await axios.get(url, {
-          headers: strategy.headers,
-          timeout: this.config.timeout,
-          validateStatus: (status) => status < 500,
-          maxRedirects: 5,
-          withCredentials: false
-        });
-
-        // 检查是否是反爬虫页面
-        if (!this.isAntiCrawlerPage(response.data)) {
-          this.logger.info(`✅ 策略成功: ${strategy.name}`);
-          return response;
-        } else {
-          this.logger.warn(`🚫 策略失败 (反爬虫): ${strategy.name}`);
-        }
-      } catch (error) {
-        this.logger.warn(`❌ 策略失败 (网络错误): ${strategy.name}`);
-      }
-
-      // 策略间延迟
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-
-    // 所有策略都失败，抛出错误
-    throw new Error('All anti-detection strategies failed');
-  }
-
-  /**
-   * 智能推断库存状态（当无法访问真实页面时）
-   */
-  private inferStockStatus(url: string): boolean {
-    // 基于URL和产品特征的智能推断
-    const productName = this.extractProductInfoFromUrl(url).title.toLowerCase();
-
-    // TwinkleTwinkle Bee产品特殊处理（用户确认有货）
-    const isTwinkleTwinkleBee = url.includes('3651') || productName.includes('twinkletwinkle') || productName.includes('bee');
-
-    // 热门系列更可能缺货
-    const isPopularSeries = productName.includes('labubu') || productName.includes('monsters');
-
-    // 简单的推断逻辑
-    if (isTwinkleTwinkleBee) {
-      this.logger.info(`🐝 TwinkleTwinkle Bee推断: ${productName} - 用户确认有货`);
-      return true;
-    }
-
-    if (isPopularSeries) {
-      this.logger.info(`🔥 热门产品推断: ${productName} - 可能缺货`);
-      return false;
-    }
-
-    // 默认推断为可能有货（保守策略）
-    this.logger.info(`❓ 未知产品推断: ${productName} - 假设有货`);
-    return true;
-  }
-
-  /**
-   * 检查是否是反爬虫页面
-   */
-  private isAntiCrawlerPage(html: string): boolean {
-    const antiCrawlerIndicators = [
-      '/_fec_sbu/fec_wrapper.js',
-      '/_fec_sbu/hxk_fec_',
-      'fec_wrapper',
-      'security check',
-      'verification required',
-      'please verify',
-      'cloudflare',
-      'ddos protection',
-      'access denied'
-    ];
-
-    const htmlLower = html.toLowerCase();
-    return antiCrawlerIndicators.some(indicator =>
-      htmlLower.includes(indicator.toLowerCase())
-    );
-  }
 
   /**
    * 从HTML检查库存状态（增强版）
@@ -537,67 +411,36 @@ export class OptimizedSgpmService {
   private checkStockFromHTML(html: string): boolean {
     const htmlLower = html.toLowerCase();
 
-    // 调试：显示HTML内容片段
-    const htmlPreview = html.substring(0, 500).replace(/\s+/g, ' ');
-    this.logger.info(`📄 HTML预览: ${htmlPreview}...`);
-
-    // 缺货指示器
+    // 简单的库存检测
     const outOfStockIndicators = [
-      'out of stock', 'sold out', 'unavailable', 'not available',
-      'coming soon', 'notify me when available', 'in-app purchase only',
-      'app purchase only', '缺货', '售罄', '暂无库存', 'disabled', 'btn-disabled'
+      'out of stock', 'sold out', 'unavailable', 'coming soon',
+      'in-app purchase only', '缺货', '售罄'
     ];
 
-    // 有货指示器
     const inStockIndicators = [
-      'add to cart', 'buy now', 'purchase', 'in stock', 'available',
-      'pick one to shake', 'shake to pick', 'add to bag', 'shop now',
-      'order now', 'get it now', '立即购买', '加入购物车', '现货', '有库存'
+      'add to cart', 'buy now', 'purchase', 'in stock',
+      'pick one to shake', 'shake to pick', '立即购买', '加入购物车'
     ];
 
-    // 盲盒抽取按钮
-    const shakeButtonPatterns = [
-      /pick\s+one\s+to\s+shake/i,
-      /shake\s+to\s+pick/i,
-      /class[^>]*chooseRandomlyBtn/i
-    ];
-
-    // 价格模式
-    const pricePatterns = [
-      /\$\d+\.\d{2}/, /S\$\d+\.\d{2}/, /SGD\s*\d+/i
-    ];
-
-    // 检查各种指示器
-    const hasOutOfStockIndicator = outOfStockIndicators.some(indicator => 
-      htmlLower.includes(indicator.toLowerCase())
+    const hasOutOfStock = outOfStockIndicators.some(indicator =>
+      htmlLower.includes(indicator)
     );
-    const hasInStockIndicator = inStockIndicators.some(indicator => 
-      htmlLower.includes(indicator.toLowerCase())
+    const hasInStock = inStockIndicators.some(indicator =>
+      htmlLower.includes(indicator)
     );
-    const hasShakeButton = shakeButtonPatterns.some(pattern => pattern.test(html));
-    const hasPricePattern = pricePatterns.some(pattern => pattern.test(html));
 
-    // 调试信息
-    this.logger.info(`🔍 库存检测详情:`);
-    this.logger.info(`   - 缺货指示器: ${hasOutOfStockIndicator}`);
-    this.logger.info(`   - 有货指示器: ${hasInStockIndicator}`);
-    this.logger.info(`   - 抽取按钮: ${hasShakeButton}`);
-    this.logger.info(`   - 价格信息: ${hasPricePattern}`);
-
-    // 判断库存状态
-    if (hasShakeButton) {
-      this.logger.info(`✅ 检测结果: 有货 (抽取按钮)`);
-      return true; // 有盲盒抽取按钮
-    } else if (hasInStockIndicator && !hasOutOfStockIndicator) {
-      this.logger.info(`✅ 检测结果: 有货 (有货指示器)`);
-      return true; // 有有货指示器且无缺货指示器
-    } else if (hasPricePattern && !hasOutOfStockIndicator) {
-      this.logger.info(`✅ 检测结果: 有货 (价格信息)`);
-      return true; // 有价格信息且无缺货指示器
-    } else {
-      this.logger.info(`❌ 检测结果: 缺货 (默认)`);
-      return false; // 默认缺货
+    // 简单判断
+    if (hasInStock && !hasOutOfStock) {
+      return true;
     }
+
+    // 检查价格信息
+    const hasPrice = /S\$\d+|\$\d+/.test(html);
+    if (hasPrice && !hasOutOfStock) {
+      return true;
+    }
+
+    return false; // 默认缺货
   }
 
   /**
