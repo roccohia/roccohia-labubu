@@ -239,29 +239,43 @@ export class OptimizedSgpmService {
 
       this.logger.debug(`✅ 网络请求成功: ${url} (状态: ${response.status})`);
 
-      const html = response.data;
-      const productInfo = this.extractProductInfoFromHTML(html, url);
-      
-      // 3. 缓存结果
-      productCache.set(cacheKey, {
-        title: productInfo.title,
-        inStock: productInfo.inStock
-      }, 5 * 60 * 1000); // 5分钟产品缓存
-      
-      return {
-        url,
-        title: productInfo.title,
-        inStock: productInfo.inStock,
-        price: productInfo.price,
-        availability: productInfo.availability,
-        checkTime: Date.now(),
-        fromCache: false
-      };
-      
+      // 检查响应状态码，与原始SgpmService保持一致
+      if (response.status >= 200 && response.status < 400) {
+        const html = response.data;
+        const productInfo = this.extractProductInfoFromHTML(html, url);
+
+        // 3. 缓存结果
+        productCache.set(cacheKey, {
+          title: productInfo.title,
+          inStock: productInfo.inStock
+        }, 5 * 60 * 1000); // 5分钟产品缓存
+
+        return {
+          url,
+          title: productInfo.title,
+          inStock: productInfo.inStock,
+          price: productInfo.price,
+          availability: productInfo.availability,
+          checkTime: Date.now(),
+          fromCache: false
+        };
+      } else {
+        // 状态码不是2xx或3xx，使用fallback
+        this.logger.warn(`HTTP请求状态码异常 (${response.status}): ${url}`);
+        const fallbackInfo = this.extractProductInfoFromUrl(url);
+        return {
+          url,
+          title: fallbackInfo.title,
+          inStock: false,
+          checkTime: Date.now(),
+          fromCache: false,
+          error: true
+        };
+      }
     } catch (error: any) {
       const errorMsg = error?.message || error?.code || 'Unknown error';
       const statusCode = error?.response?.status || 'No response';
-      this.logger.warn(`⚠️ 网络请求失败: ${url} (${errorMsg}, 状态: ${statusCode})`);
+      this.logger.error(`❌ 网络请求失败: ${url} (${errorMsg}, 状态: ${statusCode})`);
       this.stats.errors++;
 
       // 返回备用信息，但标记为错误状态
@@ -438,16 +452,14 @@ export class OptimizedSgpmService {
     for (const result of results) {
       const { url, title, inStock, price, availability, error } = result;
 
-      // 如果是错误结果，跳过状态更新但记录错误
-      if (error) {
-        this.logger.warn(`❌ 跳过错误结果: ${title} (网络请求失败)`);
-        continue;
-      }
+      // 临时注释掉跳过错误结果的逻辑，用于调试
+      // if (error) {
+      //   this.logger.warn(`❌ 跳过错误结果: ${title} (网络请求失败)`);
+      //   continue;
+      // }
 
-      // 只显示有货的产品，减少日志噪音
-      if (inStock) {
-        this.logger.info(`📦 ${title}: ✅ 有货${price ? ` (${price})` : ''}`);
-      }
+      // 显示所有产品的状态用于调试
+      this.logger.info(`📦 ${title}: ${inStock ? '✅ 有货' : '❌ 缺货'}${price ? ` (${price})` : ''}${error ? ' [网络错误]' : ''}`);
 
       const previousStatus = currentStatus[url];
       const statusChanged = !previousStatus || previousStatus.inStock !== inStock;
@@ -463,10 +475,8 @@ export class OptimizedSgpmService {
       
       if (statusChanged) {
         statusChanges++;
-        // 只记录重要的状态变化（变为有货）
-        if (inStock) {
-          this.logger.info(`🔄 状态变化: 缺货 → 有货`);
-        }
+        // 显示所有状态变化用于调试
+        this.logger.info(`🔄 状态变化: ${previousStatus?.inStock ? '有货' : '缺货'} → ${inStock ? '有货' : '缺货'}`);
       }
       
       // 只在有货时发送通知

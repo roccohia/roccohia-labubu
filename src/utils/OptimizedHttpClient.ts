@@ -43,6 +43,7 @@ export class OptimizedHttpClient {
     // 创建axios实例
     this.client = axios.create({
       timeout: 30000, // 30秒超时
+      validateStatus: (status) => status < 500, // 接受所有非5xx状态码，与原始SgpmService保持一致
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
