@@ -74,7 +74,7 @@ jobs:
           echo "=== 监控前SGPM状态检查 ==="
           if [ -f "sgpm-status.json" ]; then
             echo "✅ SGPM状态文件存在"
-            echo "文件大小: $(stat -c%s sgmp-status.json 2>/dev/null || echo '0') 字节"
+            echo "文件大小: $(stat -c%s sgpm-status.json 2>/dev/null || echo '0') 字节"
             echo "文件内容预览:"
             head -5 sgpm-status.json 2>/dev/null || echo "无法读取文件内容"
           else
@@ -85,7 +85,7 @@ jobs:
         run: |
           # 运行SGPM监控任务并捕获输出
           echo "=== 开始SGPM监控 ==="
-          npx ts-node src/sgpm-main.ts 2>&1 | tee sgmp-monitoring.log
+          npx ts-node src/sgpm-main.ts 2>&1 | tee sgpm-monitoring.log
         timeout-minutes: 12  # SGPM监控超时时间
 
       - name: Debug SGPM status after monitoring
@@ -126,15 +126,15 @@ jobs:
         if: failure()
         run: |
           # 如果SGPM监控失败，发送通知
-          if [ -n "$SGPM_BOT_TOKEN" ] && [ -n "$SGMP_CHAT_ID" ]; then
+          if [ -n "$SGPM_BOT_TOKEN" ] && [ -n "$SGPM_CHAT_ID" ]; then
             MESSAGE="🚨 SGPM监控失败
 
-📅 时间: $(date '+%Y-%m-%d %H:%M:%S') UTC
-🔢 运行编号: ${{ github.run_number }}
-📋 工作流: ${{ github.workflow }}
-🔗 查看详情: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          📅 时间: $(date '+%Y-%m-%d %H:%M:%S') UTC
+          🔢 运行编号: ${{ github.run_number }}
+          📋 工作流: ${{ github.workflow }}
+          🔗 查看详情: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-请检查日志以了解失败原因。"
+          请检查日志以了解失败原因。"
 
             curl -s -X POST "https://api.telegram.org/bot${SGPM_BOT_TOKEN}/sendMessage" \
               -d chat_id="${SGPM_CHAT_ID}" \
