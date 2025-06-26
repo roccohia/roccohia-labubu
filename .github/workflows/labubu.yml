@@ -60,6 +60,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-puppeteer-
 
+      - name: Cache security verification status
+        uses: actions/cache@v4
+        with:
+          path: security-verification-status.json
+          key: ${{ runner.os }}-security-status-${{ github.repository }}
+          restore-keys: |
+            ${{ runner.os }}-security-status-
+
       - name: Install dependencies
         run: |
           npm ci --include=dev

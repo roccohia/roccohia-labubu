@@ -48,21 +48,21 @@ echo "🔍 运行检测测试..."
 for i in {1..3}; do
     echo ""
     echo "--- 测试用例 $i ---"
-    
+
     # 复制测试日志为监控日志
     cp "test-logs/test$i.log" monitoring.log
-    
+
     # 运行检测脚本（但不实际发送Telegram消息）
     if [ -f "scripts/check-security-verification.sh" ]; then
         # 修改脚本以跳过实际的Telegram发送
         sed 's/curl -s -X POST/echo "模拟发送:" #curl -s -X POST/' scripts/check-security-verification.sh > temp-check-script.sh
         chmod +x temp-check-script.sh
-        
+
         ./temp-check-script.sh
         EXIT_CODE=$?
-        
+
         echo "退出码: $EXIT_CODE"
-        
+
         if [ $EXIT_CODE -eq 2 ]; then
             echo "✅ 正确检测到安全验证"
         elif [ $EXIT_CODE -eq 0 ]; then
@@ -70,12 +70,47 @@ for i in {1..3}; do
         else
             echo "❌ 检测脚本执行出错"
         fi
-        
+
         rm -f temp-check-script.sh
     else
         echo "❌ 检测脚本不存在"
     fi
 done
+
+# 测试去重功能
+echo ""
+echo "🔄 测试去重功能..."
+
+# 清理之前的状态文件
+rm -f security-verification-status.json
+
+echo ""
+echo "--- 去重测试：第一次检测安全验证 ---"
+cp "test-logs/test1.log" monitoring.log
+sed 's/curl -s -X POST/echo "模拟发送:" #curl -s -X POST/' scripts/check-security-verification.sh > temp-check-script.sh
+chmod +x temp-check-script.sh
+./temp-check-script.sh
+echo "第一次运行退出码: $?"
+
+echo ""
+echo "--- 去重测试：第二次检测相同安全验证 ---"
+cp "test-logs/test1.log" monitoring.log
+./temp-check-script.sh
+echo "第二次运行退出码: $?"
+
+echo ""
+echo "--- 去重测试：检测不同的安全验证 ---"
+cp "test-logs/test2.log" monitoring.log
+./temp-check-script.sh
+echo "不同验证运行退出码: $?"
+
+echo ""
+echo "--- 去重测试：正常页面（清除状态）---"
+cp "test-logs/test3.log" monitoring.log
+./temp-check-script.sh
+echo "正常页面运行退出码: $?"
+
+rm -f temp-check-script.sh
 
 # 清理测试文件
 echo ""
