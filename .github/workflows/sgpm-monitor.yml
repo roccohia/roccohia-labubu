@@ -2,7 +2,7 @@ name: SGPM (Singapore PopMart) Monitor
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # 每15分钟运行一次（SGPM库存变化较慢）
+    - cron: '*/5 * * * *'  # 每5分钟运行一次
   workflow_dispatch:  # 允许手动触发
   push:
     branches: [ main ]  # 推送到主分支时运行（用于测试）

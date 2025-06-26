@@ -226,7 +226,7 @@ export class OptimizedXhsService {
       }
 
       // 2. 时间过滤（缓存优化）
-      if (!(await this.isPostWithin5HoursCached(post.publishTime))) {
+      if (!(await this.isPostWithin1HourCached(post.publishTime))) {
         this.stats.timeFiltered++;
         return null;
       }
@@ -258,13 +258,13 @@ export class OptimizedXhsService {
   /**
    * 缓存优化的时间过滤
    */
-  private async isPostWithin5HoursCached(publishTime: string): Promise<boolean> {
+  private async isPostWithin1HourCached(publishTime: string): Promise<boolean> {
     if (!this.batchConfig.enableCaching) {
-      return this.isPostWithin5Hours(publishTime);
+      return this.isPostWithin1Hour(publishTime);
     }
 
     const cacheKey = CacheKeyGenerator.timeFilter(publishTime);
-    
+
     // 检查缓存
     const cached = globalCache.get(cacheKey);
     if (cached !== undefined) {
@@ -273,9 +273,9 @@ export class OptimizedXhsService {
     }
 
     // 计算并缓存结果
-    const result = this.isPostWithin5Hours(publishTime);
+    const result = this.isPostWithin1Hour(publishTime);
     globalCache.set(cacheKey, result, this.batchConfig.cacheTimeouts.timeFilter);
-    
+
     return result;
   }
 
@@ -395,11 +395,11 @@ export class OptimizedXhsService {
   }
 
   /**
-   * 检查帖子是否在5小时内（原有逻辑）
+   * 检查帖子是否在1小时内（原有逻辑）
    */
-  private isPostWithin5Hours(publishTime: string): boolean {
+  private isPostWithin1Hour(publishTime: string): boolean {
     const now = new Date();
-    const fiveHoursAgo = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+    const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000);
 
     // 处理 "刚刚" 和 "分钟前"
     if (publishTime.includes('刚刚') || publishTime.includes('分钟前')) {
@@ -410,7 +410,7 @@ export class OptimizedXhsService {
     const hoursMatch = publishTime.match(/(\d+)小时前/);
     if (hoursMatch) {
       const hours = parseInt(hoursMatch[1]);
-      return hours <= 5;
+      return hours <= 1;
     }
 
     // 处理 "今天" 格式
@@ -439,7 +439,7 @@ export class OptimizedXhsService {
     const editHoursMatch = publishTime.match(/编辑于\s*(\d+)小时前/);
     if (editHoursMatch) {
       const hours = parseInt(editHoursMatch[1]);
-      return hours <= 5;
+      return hours <= 1;
     }
 
     // 处理 "编辑于 X天前" 格式
@@ -452,7 +452,7 @@ export class OptimizedXhsService {
     const publishHoursMatch = publishTime.match(/发布于\s*(\d+)小时前/);
     if (publishHoursMatch) {
       const hours = parseInt(publishHoursMatch[1]);
-      return hours <= 5;
+      return hours <= 1;
     }
 
     // 处理 "发布于 X天前" 格式

@@ -55,9 +55,9 @@ export class XhsService {
     for (const post of posts) {
       this.logger.debug(`处理帖子: ${post.previewTitle} (${post.publishTime || '时间未知'})`);
 
-      // 时间过滤：只处理5小时内的帖子
-      if (!this.isPostWithin5Hours(post.publishTime)) {
-        this.logger.debug(`帖子超过5小时，跳过: ${post.previewTitle} (${post.publishTime})`);
+      // 时间过滤：只处理1小时内的帖子
+      if (!this.isPostWithin1Hour(post.publishTime)) {
+        this.logger.debug(`帖子超过1小时，跳过: ${post.previewTitle} (${post.publishTime})`);
         continue;
       }
 
@@ -156,13 +156,13 @@ export class XhsService {
   }
 
   /**
-   * 检查帖子是否在5小时内
+   * 检查帖子是否在1小时内
    */
-  private isPostWithin5Hours(publishTime?: string): boolean {
+  private isPostWithin1Hour(publishTime?: string): boolean {
     if (!publishTime) return true; // 如果没有时间信息，默认通过
 
     const now = new Date();
-    const fiveHoursAgo = new Date(now.getTime() - 5 * 60 * 60 * 1000); // 5小时前
+    const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000); // 1小时前
 
     // 处理各种时间格式
     if (publishTime.includes('分钟前') || publishTime.includes('刚刚')) {
@@ -173,12 +173,12 @@ export class XhsService {
       const hoursMatch = publishTime.match(/(\d+)小时前/);
       if (hoursMatch) {
         const hours = parseInt(hoursMatch[1]);
-        return hours <= 5; // 只接受5小时内的帖子
+        return hours <= 1; // 只接受1小时内的帖子
       }
       return true; // 如果无法解析具体小时数，默认通过
     }
 
-    // 天前的帖子都超过5小时，直接拒绝
+    // 天前的帖子都超过1小时，直接拒绝
     if (publishTime.includes('天前')) {
       return false;
     }

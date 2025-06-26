@@ -12,7 +12,8 @@ export const sgpmConfig: SgpmConfig = {
     'https://www.popmart.com/sg/products/4123/LABUBU-THE-MONSTERS-TASTY-MACARONS-SERIES-Vinyl-Face-Blind-Box',
     'https://www.popmart.com/sg/products/1898/THE-MONSTERS-FALL-IN-WILD-SERIES-Vinyl-Plush-Doll-Pendant',
     'https://www.popmart.com/sg/products/1715/THE-MONSTERS-FALL-IN-WILD-SERIES-Vinyl-Plush-Doll',
-    'https://www.popmart.com/sg/products/5631/Hirono%20Living%20Wild-Fight%20for%20Joy%20Plush%20Doll'
+    'https://www.popmart.com/sg/products/5631/Hirono%20Living%20Wild-Fight%20for%20Joy%20Plush%20Doll',
+    'https://www.popmart.com/sg/products/3651/TwinkleTwinkle-Bee-Your-Honey-Figure'
   ],
   statusFile: 'sgpm-status.json',
   maxRetries: 3,
