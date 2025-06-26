@@ -234,12 +234,15 @@ export class OptimizedSgpmService {
         validateStatus: (status) => status < 500 // 接受所有非5xx状态码
       });
 
-      this.logger.debug(`✅ 网络请求成功: ${url} (状态: ${response.status})`);
+      this.logger.info(`✅ 网络请求成功: ${url} (状态: ${response.status})`);
 
       // 检查响应状态码，与原始SgpmService保持一致
       if (response.status >= 200 && response.status < 400) {
         const html = response.data;
+        this.logger.info(`📄 HTML内容长度: ${html.length} 字符`);
+
         const productInfo = this.extractProductInfoFromHTML(html, url);
+        this.logger.info(`🔍 产品检测结果: ${productInfo.title} - ${productInfo.inStock ? '✅ 有货' : '❌ 缺货'}`);
 
         // 3. 缓存结果
         productCache.set(cacheKey, {
@@ -391,6 +394,10 @@ export class OptimizedSgpmService {
   private checkStockFromHTML(html: string): boolean {
     const htmlLower = html.toLowerCase();
 
+    // 调试：显示HTML内容片段
+    const htmlPreview = html.substring(0, 500).replace(/\s+/g, ' ');
+    this.logger.info(`📄 HTML预览: ${htmlPreview}...`);
+
     // 缺货指示器
     const outOfStockIndicators = [
       'out of stock', 'sold out', 'unavailable', 'not available',
@@ -427,14 +434,25 @@ export class OptimizedSgpmService {
     const hasShakeButton = shakeButtonPatterns.some(pattern => pattern.test(html));
     const hasPricePattern = pricePatterns.some(pattern => pattern.test(html));
 
+    // 调试信息
+    this.logger.info(`🔍 库存检测详情:`);
+    this.logger.info(`   - 缺货指示器: ${hasOutOfStockIndicator}`);
+    this.logger.info(`   - 有货指示器: ${hasInStockIndicator}`);
+    this.logger.info(`   - 抽取按钮: ${hasShakeButton}`);
+    this.logger.info(`   - 价格信息: ${hasPricePattern}`);
+
     // 判断库存状态
     if (hasShakeButton) {
+      this.logger.info(`✅ 检测结果: 有货 (抽取按钮)`);
       return true; // 有盲盒抽取按钮
     } else if (hasInStockIndicator && !hasOutOfStockIndicator) {
+      this.logger.info(`✅ 检测结果: 有货 (有货指示器)`);
       return true; // 有有货指示器且无缺货指示器
     } else if (hasPricePattern && !hasOutOfStockIndicator) {
+      this.logger.info(`✅ 检测结果: 有货 (价格信息)`);
       return true; // 有价格信息且无缺货指示器
     } else {
+      this.logger.info(`❌ 检测结果: 缺货 (默认)`);
       return false; // 默认缺货
     }
   }
