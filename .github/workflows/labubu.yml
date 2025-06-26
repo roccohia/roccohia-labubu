@@ -108,11 +108,6 @@ jobs:
             console.log('Configuration validation passed');
           "
 
-      - name: Install additional dependencies
-        run: |
-          # 安装优化版本需要的额外依赖
-          npm install axios
-
       - name: Run Labubu monitoring tasks (Optimized)
         run: |
           # 运行优化版监控任务并捕获输出
