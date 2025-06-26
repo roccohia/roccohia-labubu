@@ -60,14 +60,31 @@ should_send_notification() {
     echo "  上次时间: '$last_time'"
     echo "  已发送通知: '$notification_sent'"
 
-    # 如果已经成功发送过通知，且是相同的验证模式，则不再发送
+    # 如果已经成功发送过通知，且是相同的验证模式，检查24小时时间差
     if [ "$notification_sent" = "true" ] && [ "$last_pattern" = "$current_pattern" ]; then
-        echo "  决策: 不发送（相同验证已通知）"
-        return 1  # 不应该发送
+        if [ -n "$last_time" ]; then
+            # 计算时间差（24小时 = 86400秒）
+            local current_timestamp=$(date +%s)
+            local last_timestamp=$(date -d "$last_time" +%s 2>/dev/null || echo 0)
+            local time_diff=$((current_timestamp - last_timestamp))
+
+            echo "  时间差: ${time_diff}秒 (24小时=${86400}秒)"
+
+            if [ $time_diff -lt 86400 ]; then
+                echo "  决策: 不发送（24小时内已通知，剩余$((86400 - time_diff))秒）"
+                return 1  # 不应该发送
+            else
+                echo "  决策: 发送通知（超过24小时）"
+                return 0  # 应该发送
+            fi
+        else
+            echo "  决策: 不发送（相同验证已通知，但时间信息缺失）"
+            return 1  # 不应该发送
+        fi
     fi
 
     # 如果是不同的验证模式，或者之前没有成功发送，则发送通知
-    echo "  决策: 发送通知"
+    echo "  决策: 发送通知（新验证或之前未成功发送）"
     return 0  # 应该发送
 }
 
@@ -155,8 +172,8 @@ if [ "$VERIFICATION_DETECTED" = true ]; then
         echo "   如需重新发送，请删除状态文件: $STATUS_FILE"
     fi
 
-    # 设置退出码表示检测到验证
-    exit 2
+    # 注意：我们不再使用exit 2，而是继续执行，让workflow成功完成
+    echo "📝 安全验证检测完成，workflow将继续执行其他任务"
 else
     echo "✅ 未检测到安全验证要求"
 
@@ -173,5 +190,8 @@ else
             echo "📝 保持当前状态（之前的通知未成功发送）"
         fi
     fi
-    exit 0
 fi
+
+# 总是以成功状态退出，确保workflow不会因为安全验证检测而失败
+echo "🎯 安全验证检测流程完成"
+exit 0

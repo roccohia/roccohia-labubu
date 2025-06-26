@@ -116,27 +116,32 @@ jobs:
 
       - name: Check for security verification
         if: always()  # 总是检查，无论监控任务是否成功
+        continue-on-error: true  # 确保此步骤不会导致workflow失败
         run: |
           # 给脚本执行权限
           chmod +x scripts/check-security-verification.sh
 
           echo "开始检查安全验证状态..."
 
-          # 运行安全验证检测脚本
+          # 运行安全验证检测脚本，并确保不影响workflow状态
+          set +e  # 临时禁用错误退出
           ./scripts/check-security-verification.sh
-
-          # 捕获退出码
           VERIFICATION_EXIT_CODE=$?
+          set -e  # 重新启用错误退出
 
           echo "安全验证检测完成，退出码: $VERIFICATION_EXIT_CODE"
 
           if [ $VERIFICATION_EXIT_CODE -eq 2 ]; then
             echo "✅ 检测到安全验证要求，已处理通知逻辑"
+            echo "📝 注意：这不是错误，只是需要用户手动处理验证"
           elif [ $VERIFICATION_EXIT_CODE -eq 0 ]; then
             echo "✅ 未检测到安全验证要求"
           else
-            echo "⚠️ 安全验证检测脚本执行出错"
+            echo "⚠️ 安全验证检测脚本执行出错，但不影响workflow状态"
           fi
+
+          # 确保此步骤总是成功
+          exit 0
 
       - name: Upload monitoring logs
         if: always()  # 总是上传日志，无论成功或失败
