@@ -37,24 +37,47 @@ export class XhsScraper extends PageScraper {
       '账号异常',
       '登录验证',
       'Captcha',
-      'Robot Check'
+      'Robot Check',
+      'Access Denied',
+      'Forbidden',
+      '访问被拒绝',
+      '页面不存在',
+      '网络异常',
+      '服务器错误'
     ];
 
     const isSecurityPage = securityKeywords.some(keyword =>
       pageTitle.includes(keyword) || currentUrl.includes(keyword.toLowerCase().replace(/\s+/g, ''))
     );
 
-    if (isSecurityPage) {
-      this.logger.warn('🔐 检测到安全验证页面！');
-      this.logger.warn(`页面标题: ${pageTitle}`);
-      this.logger.warn(`页面URL: ${currentUrl}`);
-      this.logger.warn('需要手动完成小红书APP扫码验证');
+    // 额外检查：如果页面标题为空或包含错误信息，也可能是安全验证
+    const suspiciousConditions = [
+      pageTitle.trim() === '',
+      pageTitle.includes('404'),
+      pageTitle.includes('403'),
+      pageTitle.includes('500'),
+      currentUrl.includes('error'),
+      currentUrl.includes('block'),
+      currentUrl.includes('verify')
+    ];
 
-      // 只在GitHub Actions环境中输出标准化的检测标记，避免重复
+    const isSuspiciousPage = suspiciousConditions.some(condition => condition);
+
+    if (isSecurityPage || isSuspiciousPage) {
+      this.logger.warn('🔐 检测到安全验证或异常页面！');
+      this.logger.warn(`页面标题: "${pageTitle}"`);
+      this.logger.warn(`页面URL: ${currentUrl}`);
+      this.logger.warn('可能需要手动完成小红书APP扫码验证');
+
+      // 在GitHub Actions环境中输出标准化的检测标记
       const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
       if (isGitHubActions) {
         // 使用统一的标记格式，让workflow脚本检测
         this.logger.info('🔐 SECURITY_VERIFICATION_DETECTED 🔐');
+
+        // 输出详细信息供调试
+        this.logger.info(`检测原因: ${isSecurityPage ? '安全验证关键词' : '可疑页面条件'}`);
+        this.logger.info(`页面标题: ${pageTitle}`);
       }
     }
   }
@@ -691,10 +714,59 @@ export class XhsScraper extends PageScraper {
       }
 
       this.logger.info(`GitHub Actions简化提取完成，获得 ${result.length} 个帖子`);
+
+      // 如果没有提取到帖子，检查是否是安全验证问题
+      if (result.length === 0) {
+        this.logger.warn('未提取到任何帖子，检查是否遇到安全验证');
+        const currentUrl = await this.getPageUrl();
+        const pageTitle = await this.getPageTitle();
+
+        // 再次检查安全验证
+        this.checkSecurityVerification(pageTitle, currentUrl);
+
+        // 检查页面内容是否包含安全验证相关信息
+        try {
+          const pageContent = await this.page.content();
+          const securityIndicators = [
+            '安全验证',
+            'Security Verification',
+            '扫码验证',
+            '人机验证',
+            'verify',
+            'captcha',
+            'robot',
+            'blocked',
+            'forbidden'
+          ];
+
+          const hasSecurityContent = securityIndicators.some(indicator =>
+            pageContent.toLowerCase().includes(indicator.toLowerCase())
+          );
+
+          if (hasSecurityContent) {
+            this.logger.warn('页面内容包含安全验证相关信息');
+            this.logger.info('🔐 SECURITY_VERIFICATION_DETECTED 🔐');
+          }
+        } catch (contentError) {
+          this.logger.debug('检查页面内容失败:', contentError);
+        }
+      }
+
       return result;
 
     } catch (error) {
       this.logger.error('GitHub Actions简化提取失败:', error);
+
+      // 提取失败时也检查是否是安全验证问题
+      try {
+        const currentUrl = await this.getPageUrl();
+        const pageTitle = await this.getPageTitle();
+        this.logger.warn(`提取失败时的页面信息 - 标题: "${pageTitle}", URL: ${currentUrl}`);
+        this.checkSecurityVerification(pageTitle, currentUrl);
+      } catch (checkError) {
+        this.logger.debug('安全验证检查失败:', checkError);
+      }
+
       return [];
     }
   }
