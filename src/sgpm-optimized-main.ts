@@ -81,26 +81,16 @@ class EnvironmentOptimizer {
    * 优化Node.js环境
    */
   optimizeEnvironment(): void {
-    this.logger.info('🔧 优化运行环境...');
-
     // 设置最大监听器数量
     process.setMaxListeners(20);
 
     // 优化垃圾回收
     if (global.gc) {
-      this.logger.debug('🗑️ 手动触发垃圾回收');
       global.gc();
     }
 
     // 设置进程标题
     process.title = 'sgpm-optimized-monitor';
-
-    // 优化事件循环
-    process.nextTick(() => {
-      this.logger.debug('⚡ 事件循环优化完成');
-    });
-
-    this.logger.info('✅ 环境优化完成');
   }
 
   /**
@@ -108,7 +98,7 @@ class EnvironmentOptimizer {
    */
   setupPerformanceMonitoring(): void {
     // 监控未处理的Promise拒绝
-    process.on('unhandledRejection', (reason, promise) => {
+    process.on('unhandledRejection', (reason) => {
       this.logger.error('❌ 未处理的Promise拒绝:', reason);
     });
 
@@ -117,21 +107,6 @@ class EnvironmentOptimizer {
       this.logger.error('❌ 未捕获的异常:', error);
       process.exit(1);
     });
-
-    // 监控内存使用
-    const memoryMonitor = setInterval(() => {
-      const usage = process.memoryUsage();
-      const heapUsedMB = (usage.heapUsed / 1024 / 1024).toFixed(2);
-      
-      if (usage.heapUsed > 200 * 1024 * 1024) { // 200MB警告
-        this.logger.warn(`⚠️ 内存使用较高: ${heapUsedMB}MB`);
-      }
-    }, 30000); // 每30秒检查一次
-
-    // 清理定时器
-    setTimeout(() => {
-      clearInterval(memoryMonitor);
-    }, 10 * 60 * 1000); // 10分钟后停止监控
   }
 }
 
@@ -152,98 +127,67 @@ async function main(): Promise<void> {
     environmentOptimizer.setupPerformanceMonitoring();
 
     // 2. 验证配置
-    logger.info('🔍 验证SGPM配置...');
     const configValidation = validateSgpmConfig();
     if (!configValidation.valid) {
       throw new Error(`SGPM配置验证失败: ${configValidation.errors.join(', ')}`);
     }
-    logger.info('✅ SGPM配置验证通过');
 
     // 3. 验证环境变量
-    logger.info('🔍 验证SGPM环境变量...');
     const envValidation = validateSgpmEnvironment();
+    const envConfig = getSgpmEnvConfig();
+
     if (!envValidation.valid) {
-      logger.warn(`⚠️ SGPM环境变量验证失败，缺少: ${envValidation.missing.join(', ')}`);
-      logger.info('📝 将跳过Telegram通知，但继续执行产品检查');
-    } else {
-      logger.info('✅ SGPM环境变量验证通过');
+      logger.warn(`⚠️ Telegram未配置，将跳过通知: ${envValidation.missing.join(', ')}`);
     }
 
-    // 4. 获取环境配置
-    const envConfig = getSgpmEnvConfig();
-    logger.info(`📊 监控配置:`);
-    logger.info(`   📦 产品数量: ${sgpmConfig.productUrls.length}`);
-    logger.info(`   🤖 Telegram Bot: ${envConfig.botToken ? '已配置' : '未配置'}`);
-    logger.info(`   💬 Chat ID: ${envConfig.chatId ? '已配置' : '未配置'}`);
-    logger.info(`   🌐 使用代理: ${envConfig.useProxy ? '是' : '否'}`);
-    logger.info(`   🔧 调试模式: ${envConfig.debugMode ? '是' : '否'}`);
+    logger.info(`📊 监控: ${sgpmConfig.productUrls.length}个产品 | Bot:${envConfig.botToken ? '✅' : '❌'} | Chat:${envConfig.chatId ? '✅' : '❌'}`);
 
-    // 5. 预热系统缓存
-    logger.info('🔥 预热系统缓存...');
+    // 4. 预热系统缓存
     await globalCache.warmup([
       {
         key: 'sgpm_config',
         fn: async () => sgpmConfig,
-        ttl: 30 * 60 * 1000 // 30分钟
-      },
-      {
-        key: 'sgpm_env',
-        fn: async () => envConfig,
-        ttl: 30 * 60 * 1000 // 30分钟
+        ttl: 30 * 60 * 1000
       }
     ]);
-    logger.info('✅ 系统缓存预热完成');
 
-    // 6. 创建高性能SGPM服务
-    logger.info('🚀 初始化高性能SGPM监控服务...');
+    // 5. 创建并配置SGPM服务
     const sgpmService = new OptimizedSgpmService(sgpmConfig, logger);
 
-    // 7. 配置批量处理参数
     const isGitHubActions = envConfig.isGitHubActions;
     if (isGitHubActions) {
-      // GitHub Actions环境：更保守的配置
       sgpmService.setBatchConfig({
         batchSize: 2,
         concurrency: 1,
         delayBetweenBatches: 2000,
         retryFailedItems: false
       });
-      logger.info('🔧 GitHub Actions环境：使用保守的批量处理配置');
     } else {
-      // 本地环境：更激进的配置
       sgpmService.setBatchConfig({
         batchSize: 4,
         concurrency: 3,
         delayBetweenBatches: 500,
         retryFailedItems: true
       });
-      logger.info('🔧 本地环境：使用高性能批量处理配置');
     }
 
-    // 8. 执行高性能监控
-    logger.info('🎯 开始执行SGPM高性能产品库存监控...');
+    // 6. 执行监控
+    logger.info('🚀 开始SGPM高性能监控...');
     await sgpmService.checkProducts();
 
-    // 9. 获取服务性能统计
+    // 7. 性能统计和清理
     const serviceStats = sgpmService.getPerformanceStats();
-    logger.info('📈 服务性能统计:');
-    logger.info(`   🔍 检查效率: ${serviceStats.totalChecks > 0 ? (serviceStats.totalChecks / ((serviceStats.endTime - serviceStats.startTime) / 1000)).toFixed(2) : 0} 检查/秒`);
-    logger.info(`   📋 缓存效率: ${serviceStats.totalChecks > 0 ? ((serviceStats.cacheHits / serviceStats.totalChecks) * 100).toFixed(1) : 0}% 命中率`);
-    logger.info(`   🌐 网络效率: ${serviceStats.networkRequests} 请求 (节省 ${serviceStats.cacheHits} 次)`);
+    const duration = serviceStats.endTime - serviceStats.startTime;
+    const efficiency = serviceStats.totalChecks > 0 ? (serviceStats.totalChecks / (duration / 1000)).toFixed(1) : 0;
+    const cacheRate = serviceStats.totalChecks > 0 ? ((serviceStats.cacheHits / serviceStats.totalChecks) * 100).toFixed(1) : 0;
 
-    // 10. 资源清理
-    logger.info('🧹 清理系统资源...');
+    logger.info(`✅ 完成: ${efficiency}检查/秒 | 缓存${cacheRate}% | 网络${serviceStats.networkRequests}次 | 耗时${duration}ms`);
+
+    // 8. 清理资源
     await resourceManager.cleanupAll();
-    
-    // 清理缓存（可选）
     if (isGitHubActions) {
-      // GitHub Actions环境清理缓存以节省内存
       httpCache.clear();
-      logger.info('🗑️ GitHub Actions环境：已清理HTTP缓存');
     }
-
-    // 11. 完成
-    logger.success('=== SGPM高性能监控完成 ===');
 
   } catch (error) {
     logger.error('❌ SGPM高性能监控系统执行失败:', error);

@@ -88,19 +88,16 @@ export class OptimizedSgpmService {
     this.envConfig = getSgpmEnvConfig();
     this.httpClient = getHttpClient(logger);
     
-    this.logger.info(`初始化高性能SGPM服务，文件路径: ${this.config.statusFile}`);
-    
     // 初始化状态管理器
     this.statusManager = new StatusManager<SgpmStatusRecord>(
       this.config.statusFile,
       this.logger,
       {} // 初始空状态
     );
-    
+
     // 立即保存一次以确保文件存在
     try {
       this.statusManager.save();
-      this.logger.info(`✅ SGPM状态文件初始化成功: ${this.config.statusFile}`);
     } catch (error) {
       this.logger.error(`❌ SGPM状态文件初始化失败: ${this.config.statusFile}`, error);
     }
