@@ -9,7 +9,7 @@
     "run:xhs": "npx ts-node src/main.ts --xhs-only",
     "debug:xhs": "npx ts-node src/main.ts --xhs-only --debug",
     "sgpm": "npx ts-node src/sgpm-main.ts",
-    "sgmp:dev": "npx ts-node src/sgpm-main.ts --debug",
+    "sgpm:dev": "npx ts-node src/sgpm-main.ts --debug",
     "optimized": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts",
     "optimized:xhs": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts --xhs-only",
     "optimized:debug": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts --debug",

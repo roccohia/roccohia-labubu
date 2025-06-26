@@ -3,6 +3,7 @@ import { SgpmConfig } from '../types';
 import { getSgpmEnvConfig } from '../config-sgpm';
 import { StatusManager } from '../utils/statusManager';
 import { sendTelegramMessage } from '../utils/sendTelegramMessage';
+import axios from 'axios';
 
 /**
  * SGPM产品状态接口
@@ -32,13 +33,23 @@ export class SgpmService {
     this.config = config;
     this.logger = logger;
     this.envConfig = getSgpmEnvConfig();
-    
+
+    this.logger.info(`初始化SGPM状态管理器，文件路径: ${this.config.statusFile}`);
+
     // 初始化状态管理器
     this.statusManager = new StatusManager<SgpmStatusRecord>(
       this.config.statusFile,
       this.logger,
       {} // 初始空状态
     );
+
+    // 立即保存一次以确保文件存在
+    try {
+      this.statusManager.save();
+      this.logger.info(`✅ SGPM状态文件初始化成功: ${this.config.statusFile}`);
+    } catch (error) {
+      this.logger.error(`❌ SGPM状态文件初始化失败: ${this.config.statusFile}`, error);
+    }
   }
 
   /**
@@ -46,36 +57,51 @@ export class SgpmService {
    */
   async checkProducts(): Promise<void> {
     this.logger.info(`开始检查 ${this.config.productUrls.length} 个SGPM产品`);
-    
+
     let checkedCount = 0;
     let inStockCount = 0;
     let notificationsSent = 0;
+    let errorCount = 0;
 
     for (const url of this.config.productUrls) {
       try {
         this.logger.info(`检查产品 ${checkedCount + 1}/${this.config.productUrls.length}: ${url}`);
-        
+
         const result = await this.checkSingleProduct(url);
         await this.processProductResult(url, result);
-        
+
         checkedCount++;
         if (result.inStock) {
           inStockCount++;
           notificationsSent++;
         }
-        
+
+        this.logger.info(`✅ 产品检查完成: ${result.title} - ${result.inStock ? '有货' : '缺货'}`);
+
         // 添加延迟避免请求过快
         await this.sleep(2000);
-        
+
       } catch (error) {
-        this.logger.error(`检查产品失败: ${url}`, error);
+        this.logger.error(`❌ 检查产品失败: ${url}`, error);
+        errorCount++;
         checkedCount++;
       }
     }
 
-    this.logger.info(`SGPM检查完成: ${checkedCount}/${this.config.productUrls.length} 个产品已检查`);
-    this.logger.info(`有货产品: ${inStockCount} 个`);
-    this.logger.info(`发送通知: ${notificationsSent} 个`);
+    // 最终保存状态
+    try {
+      this.statusManager.save();
+      this.logger.info(`📝 最终状态已保存到: ${this.config.statusFile}`);
+    } catch (error) {
+      this.logger.error(`❌ 最终状态保存失败:`, error);
+    }
+
+    this.logger.info(`📊 SGPM检查完成统计:`);
+    this.logger.info(`   - 总产品数: ${this.config.productUrls.length}`);
+    this.logger.info(`   - 已检查: ${checkedCount}`);
+    this.logger.info(`   - 有货产品: ${inStockCount}`);
+    this.logger.info(`   - 发送通知: ${notificationsSent}`);
+    this.logger.info(`   - 错误数量: ${errorCount}`);
   }
 
   /**
@@ -85,18 +111,18 @@ export class SgpmService {
     this.logger.debug(`开始检查单个产品: ${url}`);
     
     try {
-      // 使用简化的HTTP请求方法检查产品
-      const response = await fetch(url, {
-        method: 'GET',
+      // 使用axios进行HTTP请求
+      const response = await axios.get(url, {
         headers: {
           'User-Agent': this.config.userAgent,
           ...this.config.headers
         },
-        signal: AbortSignal.timeout(this.config.timeout)
+        timeout: this.config.timeout,
+        validateStatus: (status) => status < 500 // 接受所有非5xx状态码
       });
 
-      if (response.ok) {
-        const html = await response.text();
+      if (response.status >= 200 && response.status < 400) {
+        const html = response.data;
         const result = this.extractProductInfoFromHTML(html, url);
         this.logger.debug(`产品检查结果: ${result.title} - ${result.inStock ? '有货' : '缺货'}`);
         return result;
