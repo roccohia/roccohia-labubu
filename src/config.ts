@@ -1,8 +1,9 @@
-import { XhsConfig, SgpmConfig } from './types';
+import { XhsConfig } from './types';
 
 /**
- * 小红书监控配置
+ * 小红书监控配置 (XHS专用)
  * 包含搜索关键词、匹配规则、文件路径等设置
+ * 注意：SGPM配置已移至 config-sgpm.ts
  */
 export const xhsConfig: XhsConfig = {
   searchKeyword: 'labubu',
@@ -34,22 +35,9 @@ export const xhsConfig: XhsConfig = {
 };
 
 /**
- * 新加坡 PopMart 监控配置
- * 包含要监控的产品URL列表和状态文件路径
+ * 注意：SGPM配置已移至 config-sgpm.ts
+ * 现在此文件只包含小红书(XHS)相关配置
  */
-export const sgpmConfig: SgpmConfig = {
-  productUrls: [
-    'https://www.popmart.com/sg/products/3877/THE-MONSTERS-Wacky-Mart-Series-Earphone-Case',
-    'https://www.popmart.com/sg/products/1149/LABUBU-HIDE-AND-SEEK-IN-SINGAPORE-SERIES-Vinyl-Plush-Doll-Pendant',
-    'https://www.popmart.com/sg/products/1712/THE-MONSTERS-COCA-COLA-SERIES-Vinyl-Face-Blind-Box',
-    'https://www.popmart.com/sg/products/4123/LABUBU-THE-MONSTERS-TASTY-MACARONS-SERIES-Vinyl-Face-Blind-Box',
-    'https://www.popmart.com/sg/products/1898/THE-MONSTERS-FALL-IN-WILD-SERIES-Vinyl-Plush-Doll-Pendant',
-    'https://www.popmart.com/sg/products/1715/THE-MONSTERS-FALL-IN-WILD-SERIES-Vinyl-Plush-Doll',
-    'https://www.popmart.com/sg/products/5631/Hirono%20Living%20Wild-Fight%20for%20Joy%20Plush%20Doll'
-    
-  ],
-  statusFile: 'sgpm-products-status.json',
-};
 
 /**
  * 应用程序通用配置
@@ -109,19 +97,7 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
     errors.push('小红书匹配关键词列表不能为空');
   }
 
-  // 验证 PopMart 配置
-  if (sgpmConfig.productUrls.length === 0) {
-    errors.push('PopMart 产品URL列表不能为空');
-  }
-
-  // 验证URL格式
-  for (const url of sgpmConfig.productUrls) {
-    try {
-      new URL(url);
-    } catch {
-      errors.push(`无效的产品URL: ${url}`);
-    }
-  }
+  // 注意：SGPM配置验证已移至 config-sgpm.ts
 
   return {
     valid: errors.length === 0,

@@ -1,4 +1,4 @@
-name: Labubu Watcher
+name: XHS (Xiaohongshu) Monitor
 
 on:
   schedule:
@@ -6,10 +6,12 @@ on:
   workflow_dispatch:  # 允许手动触发
   push:
     branches: [ main ]  # 推送到主分支时运行（用于测试）
-    paths-ignore:
-      - '**.md'
-      - '.gitignore'
-      - 'docs/**'
+    paths:
+      - 'src/main.ts'
+      - 'src/config.ts'
+      - 'src/services/XhsService.ts'
+      - 'src/scrapers/XhsScraper.ts'
+      - '.github/workflows/labubu.yml'
 
 env:
   NODE_ENV: production
@@ -18,14 +20,15 @@ env:
   PUPPETEER_DOWNLOAD_HOST: 'https://npmmirror.com/mirrors/chromium'
 
 jobs:
-  run-labubu:
+  xhs-monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 20  # 减少超时时间，更快发现问题
+    timeout-minutes: 20  # XHS监控超时时间
 
     strategy:
-      fail-fast: false  # 即使一个任务失败，其他任务继续执行
+      fail-fast: false  # 即使失败也不影响SGPM workflow
 
     env:
+      # XHS专用的Telegram配置（保持原有配置）
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
       # 代理配置 - 支持多个代理
@@ -88,13 +91,16 @@ jobs:
             libatspi2.0-dev \
             libgtk-3-dev
 
-      - name: Verify environment
+      - name: Verify XHS environment
         run: |
+          echo "=== XHS环境信息 ==="
           echo "Node version: $(node --version)"
           echo "NPM version: $(npm --version)"
           echo "TypeScript version: $(npx tsc --version)"
           echo "Environment: $NODE_ENV"
           echo "Use proxy: $USE_PROXY"
+          echo "XHS Bot Token: ${BOT_TOKEN:+已配置}"
+          echo "XHS Chat ID: ${CHAT_ID:+已配置}"
 
       - name: Run configuration validation
         run: |
@@ -115,12 +121,12 @@ jobs:
           echo "=== 监控前去重状态检查 ==="
           ./scripts/debug-xhs-dedup.sh
 
-      - name: Run Labubu monitoring tasks (Fallback to Original)
+      - name: Run XHS monitoring tasks
         run: |
-          # 临时回退到原版本，因为优化版本遇到问题
-          echo "使用原版本监控任务（优化版本调试中）"
-          npm start 2>&1 | tee monitoring.log
-        timeout-minutes: 25  # 原版本超时时间
+          # 运行小红书监控任务（已分离SGPM功能）
+          echo "=== 开始XHS监控 ==="
+          npm start 2>&1 | tee xhs-monitoring.log
+        timeout-minutes: 20  # XHS监控超时时间
 
       - name: Debug XHS deduplication after monitoring
         if: always()  # 总是执行，无论监控是否成功

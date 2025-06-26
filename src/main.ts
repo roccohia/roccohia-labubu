@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 
 /**
- * Labubu 监控系统 - 优化版主入口
- * 
+ * 小红书(XHS)监控系统 - 主入口
+ *
  * 功能：
  * - 小红书关键词监控
- * - PopMart 库存监控
  * - Telegram 通知推送
+ *
+ * 注意：SGPM监控已分离到独立的 sgpm-main.ts
  */
 
 import { logger } from './utils/logger';
-import { validateConfig, xhsConfig, sgpmConfig } from './config';
+import { validateConfig, xhsConfig } from './config';
 import { validateEnvironmentVariables } from './utils/helpers';
-import { XhsMonitoringTask, PopMartMonitoringTask, TaskExecutor } from './core/MonitoringTask';
+import { XhsMonitoringTask, TaskExecutor } from './core/MonitoringTask';
 
 /**
  * 主函数
@@ -98,10 +99,7 @@ function createMonitoringTasks() {
     tasks.push(new XhsMonitoringTask(logger, xhsConfig));
   }
 
-  // 创建PopMart监控任务
-  if (shouldRunPopMartTask()) {
-    tasks.push(new PopMartMonitoringTask(logger, sgpmConfig));
-  }
+  // 注意：PopMart监控任务已移至 sgpm-main.ts
 
   if (tasks.length === 0) {
     throw new Error('没有可执行的监控任务');
@@ -122,14 +120,8 @@ function shouldRunXhsTask(): boolean {
 }
 
 /**
- * 判断是否运行PopMart任务
+ * 注意：PopMart任务判断函数已移除，因为SGPM已分离
  */
-function shouldRunPopMartTask(): boolean {
-  const args = process.argv;
-  if (args.includes('--popmart-only')) return true;
-  if (args.includes('--xhs-only')) return false;
-  return true; // 默认运行
-}
 
 /**
  * 全局清理函数
@@ -161,7 +153,7 @@ process.on('uncaughtException', (error) => {
   }
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
   logger.error('未处理的Promise拒绝:', reason);
   if (!isShuttingDown) {
     gracefulShutdown('unhandledRejection');

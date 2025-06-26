@@ -1,0 +1,151 @@
+name: SGPM (Singapore PopMart) Monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # 每15分钟运行一次（SGPM库存变化较慢）
+  workflow_dispatch:  # 允许手动触发
+  push:
+    branches: [ main ]  # 推送到主分支时运行（用于测试）
+    paths:
+      - 'src/sgpm-main.ts'
+      - 'src/config-sgpm.ts'
+      - 'src/services/SgpmService.ts'
+      - '.github/workflows/sgpm-monitor.yml'
+
+env:
+  NODE_ENV: production
+  USE_PROXY: true
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: false
+  PUPPETEER_DOWNLOAD_HOST: 'https://npmmirror.com/mirrors/chromium'
+
+jobs:
+  sgpm-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15  # SGPM监控通常较快
+
+    strategy:
+      fail-fast: false  # 即使失败也不影响其他workflow
+
+    env:
+      # SGPM专用的Telegram配置
+      SGPM_BOT_TOKEN: ${{ secrets.SGPM_BOT_TOKEN }}
+      SGPM_CHAT_ID: ${{ secrets.SGPM_CHAT_ID }}
+      # 代理配置
+      PROXY_LIST: ${{ secrets.PROXY_LIST }}
+      # 调试模式
+      DEBUG_MODE: ${{ vars.DEBUG_MODE || 'false' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1  # 只获取最新提交，加快速度
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci --include=dev
+          # 安装Puppeteer的Chromium
+          npx puppeteer browsers install chrome
+
+      - name: Verify SGPM environment
+        run: |
+          echo "=== SGPM环境验证 ==="
+          echo "Node.js版本: $(node --version)"
+          echo "NPM版本: $(npm --version)"
+          echo "SGPM Bot Token: ${SGPM_BOT_TOKEN:+已配置}"
+          echo "SGPM Chat ID: ${SGPM_CHAT_ID:+已配置}"
+          echo "代理列表: ${PROXY_LIST:+已配置}"
+          echo "调试模式: ${DEBUG_MODE}"
+          echo "工作目录: $(pwd)"
+          echo "可用磁盘空间:"
+          df -h
+          echo "内存使用:"
+          free -h
+
+      - name: Debug SGPM status before monitoring
+        run: |
+          # 检查SGPM状态文件
+          echo "=== 监控前SGPM状态检查 ==="
+          if [ -f "sgpm-status.json" ]; then
+            echo "✅ SGPM状态文件存在"
+            echo "文件大小: $(stat -c%s sgmp-status.json 2>/dev/null || echo '0') 字节"
+            echo "文件内容预览:"
+            head -5 sgpm-status.json 2>/dev/null || echo "无法读取文件内容"
+          else
+            echo "❌ SGPM状态文件不存在，将创建新文件"
+          fi
+
+      - name: Run SGPM monitoring
+        run: |
+          # 运行SGPM监控任务并捕获输出
+          echo "=== 开始SGPM监控 ==="
+          npx ts-node src/sgpm-main.ts 2>&1 | tee sgmp-monitoring.log
+        timeout-minutes: 12  # SGPM监控超时时间
+
+      - name: Debug SGPM status after monitoring
+        if: always()  # 总是执行，无论监控是否成功
+        run: |
+          # 检查监控后的状态
+          echo "=== 监控后SGPM状态检查 ==="
+          if [ -f "sgpm-status.json" ]; then
+            echo "✅ SGPM状态文件存在"
+            echo "文件大小: $(stat -c%s sgpm-status.json 2>/dev/null || echo '0') 字节"
+            echo "最后修改时间: $(stat -c%y sgpm-status.json 2>/dev/null || echo '未知')"
+          else
+            echo "❌ SGPM状态文件仍不存在"
+          fi
+          
+          # 显示监控日志摘要
+          if [ -f "sgpm-monitoring.log" ]; then
+            echo ""
+            echo "📋 监控日志摘要:"
+            echo "总行数: $(wc -l < sgpm-monitoring.log)"
+            echo "错误信息:"
+            grep -i "error\|fail\|timeout" sgpm-monitoring.log | head -5 || echo "无错误信息"
+            echo "成功信息:"
+            grep -i "success\|complete\|✅" sgpm-monitoring.log | head -5 || echo "无成功信息"
+          fi
+
+      - name: Upload SGPM logs
+        if: always()  # 总是上传日志，便于调试
+        uses: actions/upload-artifact@v4
+        with:
+          name: sgpm-logs-${{ github.run_number }}
+          path: |
+            sgpm-monitoring.log
+            sgpm-status.json
+          retention-days: 7
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          # 如果SGPM监控失败，发送通知
+          if [ -n "$SGPM_BOT_TOKEN" ] && [ -n "$SGMP_CHAT_ID" ]; then
+            MESSAGE="🚨 SGPM监控失败
+
+📅 时间: $(date '+%Y-%m-%d %H:%M:%S') UTC
+🔢 运行编号: ${{ github.run_number }}
+📋 工作流: ${{ github.workflow }}
+🔗 查看详情: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+请检查日志以了解失败原因。"
+
+            curl -s -X POST "https://api.telegram.org/bot${SGPM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${SGPM_CHAT_ID}" \
+              -d text="$MESSAGE" \
+              -d parse_mode="HTML" || echo "发送失败通知失败"
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # 清理临时文件
+          echo "=== 清理临时文件 ==="
+          rm -f sgpm-monitoring.log
+          echo "清理完成"
