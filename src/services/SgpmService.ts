@@ -1,7 +1,7 @@
 import { LoggerInstance } from '../utils/logger';
 import { SgpmConfig, getSgpmEnvConfig } from '../config-sgpm';
 import { StatusManager } from '../utils/statusManager';
-import { sendTelegramMessage } from '../utils/telegram';
+import { sendTelegramMessage } from '../utils/sendTelegramMessage';
 
 /**
  * SGPM产品状态接口
