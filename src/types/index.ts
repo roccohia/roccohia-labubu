@@ -88,6 +88,11 @@ export interface XhsConfig {
 export interface SgpmConfig {
   productUrls: string[];
   statusFile: string;
+  maxRetries: number;
+  retryDelay: number;
+  timeout: number;
+  userAgent: string;
+  headers: Record<string, string>;
 }
 
 /**
