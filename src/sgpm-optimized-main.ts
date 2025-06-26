@@ -15,7 +15,7 @@
 import { logger } from './utils/logger';
 import { sgpmConfig, validateSgpmConfig, validateSgpmEnvironment, getSgpmEnvConfig } from './config-sgpm';
 import { OptimizedSgpmService } from './services/OptimizedSgpmService';
-import { getResourceManager } from './utils/ResourceManager';
+import { getEnhancedResourceManager } from './utils/EnhancedResourceManager';
 import { globalCache, httpCache, productCache } from './utils/OptimizedCacheManager';
 
 /**
@@ -141,7 +141,7 @@ class EnvironmentOptimizer {
 async function main(): Promise<void> {
   const performanceMonitor = new PerformanceMonitor(logger);
   const environmentOptimizer = new EnvironmentOptimizer(logger);
-  const resourceManager = getResourceManager(logger);
+  const resourceManager = getEnhancedResourceManager(logger);
 
   performanceMonitor.start();
   logger.info('=== SGPM高性能监控系统启动 ===');
@@ -233,7 +233,7 @@ async function main(): Promise<void> {
 
     // 10. 资源清理
     logger.info('🧹 清理系统资源...');
-    await resourceManager.cleanup();
+    await resourceManager.cleanupAll();
     
     // 清理缓存（可选）
     if (isGitHubActions) {
@@ -268,8 +268,8 @@ function setupGracefulShutdown(): void {
     
     try {
       // 清理资源
-      const resourceManager = getResourceManager(logger);
-      await resourceManager.cleanup();
+      const resourceManager = getEnhancedResourceManager(logger);
+      await resourceManager.cleanupAll();
       
       // 清理缓存
       globalCache.clear();
