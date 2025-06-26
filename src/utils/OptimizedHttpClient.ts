@@ -1,6 +1,15 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { LoggerInstance } from './logger';
-import { httpCache } from './CacheManager';
+import { httpCache } from './OptimizedCacheManager';
+
+/**
+ * 扩展的 Axios 请求配置，包含元数据
+ */
+interface ExtendedAxiosRequestConfig extends InternalAxiosRequestConfig {
+  metadata?: {
+    startTime: number;
+  };
+}
 
 /**
  * 请求重试配置
@@ -57,13 +66,13 @@ export class OptimizedHttpClient {
    */
   private setupRequestInterceptor(): void {
     this.client.interceptors.request.use(
-      (config) => {
+      (config: ExtendedAxiosRequestConfig) => {
         // 添加请求时间戳
         config.metadata = { startTime: Date.now() };
-        
+
         // 记录请求日志
         this.logger.debug(`HTTP请求: ${config.method?.toUpperCase()} ${config.url}`);
-        
+
         return config;
       },
       (error) => {
@@ -80,16 +89,18 @@ export class OptimizedHttpClient {
     this.client.interceptors.response.use(
       (response) => {
         // 计算请求耗时
-        const duration = Date.now() - (response.config.metadata?.startTime || 0);
+        const config = response.config as ExtendedAxiosRequestConfig;
+        const duration = Date.now() - (config.metadata?.startTime || 0);
         this.logger.debug(`HTTP响应: ${response.status} ${response.config.url} (${duration}ms)`);
-        
+
         return response;
       },
       (error) => {
         // 计算请求耗时
-        const duration = Date.now() - (error.config?.metadata?.startTime || 0);
+        const config = error.config as ExtendedAxiosRequestConfig;
+        const duration = Date.now() - (config?.metadata?.startTime || 0);
         this.logger.warn(`HTTP错误: ${error.response?.status || 'NETWORK_ERROR'} ${error.config?.url} (${duration}ms)`);
-        
+
         return Promise.reject(error);
       }
     );
