@@ -39,6 +39,19 @@ export class XhsService {
     let duplicatePosts = 0;
     let keywordMatches = 0;
 
+    // 输出当前去重列表状态
+    this.logger.info(`📋 当前去重列表包含 ${seenPosts.length} 个已推送帖子`);
+
+    // 在GitHub Actions环境中输出更详细的调试信息
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+    if (isGitHubActions && seenPosts.length > 0) {
+      this.logger.debug(`📋 最近的已推送帖子URL (最多显示5个):`);
+      const recentSeen = seenPosts.slice(-5);
+      recentSeen.forEach((url, index) => {
+        this.logger.debug(`  ${index + 1}. ${url}`);
+      });
+    }
+
     for (const post of posts) {
       this.logger.debug(`处理帖子: ${post.previewTitle} (${post.publishTime || '时间未知'})`);
 
@@ -60,6 +73,13 @@ export class XhsService {
       if (seenPosts.includes(post.url)) {
         this.logger.debug(`帖子已推送过，跳过: ${post.previewTitle}`);
         duplicatePosts++;
+
+        // 在GitHub Actions环境中输出更详细的重复信息
+        if (isGitHubActions) {
+          this.logger.debug(`🔄 重复URL: ${post.url}`);
+          const urlIndex = seenPosts.indexOf(post.url);
+          this.logger.debug(`🔄 该URL在去重列表中的位置: ${urlIndex + 1}/${seenPosts.length}`);
+        }
         continue;
       }
 
@@ -72,8 +92,14 @@ export class XhsService {
         // 添加到已推送列表
         seenPosts.push(post.url);
         newPostsSent++;
-        
+
         this.logger.success(`✅ 帖子推送成功: ${post.previewTitle}`);
+
+        // 在GitHub Actions环境中输出更详细的成功信息
+        if (isGitHubActions) {
+          this.logger.debug(`✅ 新增URL到去重列表: ${post.url}`);
+          this.logger.debug(`✅ 当前去重列表大小: ${seenPosts.length}`);
+        }
       } catch (error) {
         this.logger.error('通知发送失败:', error);
         this.logger.error(`❌ 帖子推送失败，不记录到去重列表: ${post.previewTitle}`, error);
@@ -81,7 +107,7 @@ export class XhsService {
       }
     }
 
-    // 更新状态
+    // 更新状态 - 无论是否有新帖子都要保存，确保状态同步
     if (newPostsSent > 0) {
       // 限制已推送列表大小
       if (seenPosts.length > this.config.maxSeenPosts) {
@@ -91,10 +117,35 @@ export class XhsService {
       }
 
       this.statusManager.set(seenPosts);
-      this.statusManager.save();
-      this.logger.info(`📝 状态文件已更新，新增 ${newPostsSent} 条记录`);
+
+      // 在GitHub Actions环境中强制立即保存，避免进程结束前丢失数据
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      if (isGitHubActions) {
+        this.statusManager.save(); // 强制立即保存
+        this.logger.info(`📝 GitHub Actions环境：强制立即保存状态文件，新增 ${newPostsSent} 条记录`);
+
+        // 验证保存是否成功
+        try {
+          const savedData = this.statusManager.get();
+          this.logger.info(`📝 验证保存结果：当前记录数 ${savedData.length}`);
+
+          // 输出最近几条记录用于调试
+          if (savedData.length > 0) {
+            const recentUrls = savedData.slice(-Math.min(3, savedData.length));
+            this.logger.debug(`📝 最近保存的URL: ${recentUrls.join(', ')}`);
+          }
+        } catch (error) {
+          this.logger.error('📝 验证保存结果失败:', error);
+        }
+      } else {
+        this.statusManager.save();
+        this.logger.info(`📝 状态文件已更新，新增 ${newPostsSent} 条记录`);
+      }
     } else {
-      this.logger.info('📝 无新的成功推送，状态文件保持不变');
+      // 即使没有新帖子，也要确保状态文件存在并且是最新的
+      this.statusManager.set(seenPosts);
+      this.statusManager.save();
+      this.logger.info('📝 无新的成功推送，但已确保状态文件同步');
     }
 
     this.logger.info(`处理完成 - 总帖子: ${posts.length}, 关键词匹配: ${keywordMatches}, 新发送: ${newPostsSent}, 重复: ${duplicatePosts}`);

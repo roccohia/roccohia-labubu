@@ -23,6 +23,33 @@ export class StatusManager<T> {
 
     // 确保目录存在
     this.ensureDirectoryExists();
+
+    // 在GitHub Actions环境中设置进程退出时的强制保存
+    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+    if (isGitHubActions) {
+      this.setupGitHubActionsExitHandlers();
+    }
+  }
+
+  /**
+   * 设置GitHub Actions环境的退出处理器
+   */
+  private setupGitHubActionsExitHandlers(): void {
+    const forceExit = () => {
+      try {
+        this.logger.info(`🔄 进程退出前强制保存状态: ${this.filePath}`);
+        this.save();
+        this.logger.info(`✅ 退出前保存完成: ${this.filePath}`);
+      } catch (error) {
+        this.logger.error(`❌ 退出前保存失败: ${this.filePath}`, error);
+      }
+    };
+
+    // 监听各种退出信号
+    process.on('exit', forceExit);
+    process.on('SIGINT', forceExit);
+    process.on('SIGTERM', forceExit);
+    process.on('beforeExit', forceExit);
   }
 
   /**
@@ -132,6 +159,12 @@ export class StatusManager<T> {
    */
   public save(): void {
     try {
+      // 清除防抖定时器，确保立即保存
+      if (this.saveTimeout) {
+        clearTimeout(this.saveTimeout);
+        this.saveTimeout = null;
+      }
+
       // 创建备份（如果主文件存在）
       if (fs.existsSync(this.filePath)) {
         this.createBackup();
@@ -139,10 +172,51 @@ export class StatusManager<T> {
 
       // 保存到主文件
       this.saveToFile(this.filePath, this.data);
+
+      // 在GitHub Actions环境中进行额外验证
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      if (isGitHubActions) {
+        this.verifyGitHubActionsSave();
+      }
+
       this.logger.info(`状态已成功保存到 ${this.filePath}`);
 
     } catch (error) {
       this.logger.error(`保存状态失败`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * GitHub Actions环境中的保存验证
+   */
+  private verifyGitHubActionsSave(): void {
+    try {
+      // 验证文件是否存在
+      if (!fs.existsSync(this.filePath)) {
+        throw new Error(`文件保存后不存在: ${this.filePath}`);
+      }
+
+      // 验证文件内容
+      const savedContent = fs.readFileSync(this.filePath, 'utf-8');
+      const parsedData = JSON.parse(savedContent);
+
+      // 验证数据完整性
+      if (Array.isArray(this.data) && Array.isArray(parsedData)) {
+        if (parsedData.length !== this.data.length) {
+          throw new Error(`数据长度不匹配: 期望 ${this.data.length}, 实际 ${parsedData.length}`);
+        }
+      }
+
+      this.logger.info(`✅ GitHub Actions保存验证通过: ${this.filePath}`);
+      this.logger.debug(`📊 文件大小: ${savedContent.length} 字节`);
+
+      if (Array.isArray(parsedData)) {
+        this.logger.debug(`📊 数组长度: ${parsedData.length} 项`);
+      }
+
+    } catch (error) {
+      this.logger.error('❌ GitHub Actions保存验证失败:', error);
       throw error;
     }
   }

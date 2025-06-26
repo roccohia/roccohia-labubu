@@ -108,12 +108,26 @@ jobs:
             console.log('Configuration validation passed');
           "
 
+      - name: Debug XHS deduplication before monitoring
+        run: |
+          # 运行前检查去重文件状态
+          chmod +x scripts/debug-xhs-dedup.sh
+          echo "=== 监控前去重状态检查 ==="
+          ./scripts/debug-xhs-dedup.sh
+
       - name: Run Labubu monitoring tasks (Fallback to Original)
         run: |
           # 临时回退到原版本，因为优化版本遇到问题
           echo "使用原版本监控任务（优化版本调试中）"
           npm start 2>&1 | tee monitoring.log
         timeout-minutes: 25  # 原版本超时时间
+
+      - name: Debug XHS deduplication after monitoring
+        if: always()  # 总是执行，无论监控是否成功
+        run: |
+          # 运行后检查去重文件状态
+          echo "=== 监控后去重状态检查 ==="
+          ./scripts/debug-xhs-dedup.sh
 
       - name: Check for security verification
         if: always()  # 总是检查，无论监控任务是否成功
