@@ -224,14 +224,32 @@ export class OptimizedSgpmService {
     this.stats.networkRequests++;
     this.logger.debug(`🌐 网络请求: ${url}`);
 
+    // 添加随机延迟，避免被识别为爬虫
+    const delay = Math.random() * 2000 + 1000; // 1-3秒随机延迟
+    await new Promise(resolve => setTimeout(resolve, delay));
+
     try {
       const response = await axios.get(url, {
         headers: {
           'User-Agent': this.config.userAgent,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Cache-Control': 'max-age=0',
+          'DNT': '1',
+          'Referer': 'https://www.popmart.com/',
           ...this.config.headers
         },
         timeout: this.config.timeout,
-        validateStatus: (status) => status < 500 // 接受所有非5xx状态码
+        validateStatus: (status) => status < 500, // 接受所有非5xx状态码
+        maxRedirects: 5, // 允许重定向
+        withCredentials: false
       });
 
       this.logger.info(`✅ 网络请求成功: ${url} (状态: ${response.status})`);
@@ -240,6 +258,21 @@ export class OptimizedSgpmService {
       if (response.status >= 200 && response.status < 400) {
         const html = response.data;
         this.logger.info(`📄 HTML内容长度: ${html.length} 字符`);
+
+        // 检查是否是反爬虫页面
+        if (this.isAntiCrawlerPage(html)) {
+          this.logger.warn(`🚫 检测到反爬虫页面: ${url}`);
+          // 返回未知状态，不更新库存信息
+          const fallbackInfo = this.extractProductInfoFromUrl(url);
+          return {
+            url,
+            title: fallbackInfo.title,
+            inStock: false,
+            checkTime: Date.now(),
+            fromCache: false,
+            error: true // 标记为错误状态，跳过状态更新
+          };
+        }
 
         const productInfo = this.extractProductInfoFromHTML(html, url);
         this.logger.info(`🔍 产品检测结果: ${productInfo.title} - ${productInfo.inStock ? '✅ 有货' : '❌ 缺货'}`);
@@ -389,6 +422,28 @@ export class OptimizedSgpmService {
   }
 
   /**
+   * 检查是否是反爬虫页面
+   */
+  private isAntiCrawlerPage(html: string): boolean {
+    const antiCrawlerIndicators = [
+      '/_fec_sbu/fec_wrapper.js',
+      '/_fec_sbu/hxk_fec_',
+      'fec_wrapper',
+      'security check',
+      'verification required',
+      'please verify',
+      'cloudflare',
+      'ddos protection',
+      'access denied'
+    ];
+
+    const htmlLower = html.toLowerCase();
+    return antiCrawlerIndicators.some(indicator =>
+      htmlLower.includes(indicator.toLowerCase())
+    );
+  }
+
+  /**
    * 从HTML检查库存状态（增强版）
    */
   private checkStockFromHTML(html: string): boolean {
@@ -470,14 +525,14 @@ export class OptimizedSgpmService {
     for (const result of results) {
       const { url, title, inStock, price, availability, error } = result;
 
-      // 临时注释掉跳过错误结果的逻辑，用于调试
-      // if (error) {
-      //   this.logger.warn(`❌ 跳过错误结果: ${title} (网络请求失败)`);
-      //   continue;
-      // }
+      // 跳过错误结果（包括反爬虫页面），不更新状态
+      if (error) {
+        this.logger.warn(`❌ 跳过错误结果: ${title} (网络请求失败或反爬虫页面)`);
+        continue;
+      }
 
-      // 显示所有产品的状态用于调试
-      this.logger.info(`📦 ${title}: ${inStock ? '✅ 有货' : '❌ 缺货'}${price ? ` (${price})` : ''}${error ? ' [网络错误]' : ''}`);
+      // 显示产品状态
+      this.logger.info(`📦 ${title}: ${inStock ? '✅ 有货' : '❌ 缺货'}${price ? ` (${price})` : ''}`);
 
       const previousStatus = currentStatus[url];
       const statusChanged = !previousStatus || previousStatus.inStock !== inStock;
