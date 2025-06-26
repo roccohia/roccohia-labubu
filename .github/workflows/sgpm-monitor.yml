@@ -81,12 +81,12 @@ jobs:
             echo "❌ SGPM状态文件不存在，将创建新文件"
           fi
 
-      - name: Run SGPM monitoring
+      - name: Run SGPM monitoring (Optimized)
         run: |
-          # 运行SGPM监控任务并捕获输出
-          echo "=== 开始SGPM监控 ==="
-          npx ts-node src/sgpm-main.ts 2>&1 | tee sgpm-monitoring.log
-        timeout-minutes: 12  # SGPM监控超时时间
+          # 运行SGPM高性能监控任务并捕获输出
+          echo "=== 开始SGPM高性能监控 ==="
+          node --expose-gc --max-old-space-size=1024 -r ts-node/register src/sgpm-optimized-main.ts 2>&1 | tee sgpm-monitoring.log
+        timeout-minutes: 10  # 优化版本超时时间更短
 
       - name: Debug SGPM status after monitoring
         if: always()  # 总是执行，无论监控是否成功

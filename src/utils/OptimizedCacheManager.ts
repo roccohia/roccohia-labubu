@@ -347,7 +347,90 @@ export const httpCache = new OptimizedCacheManager<string>(5 * 60 * 1000, 500, 2
 /**
  * 产品状态缓存
  */
-export const productCache = new OptimizedCacheManager<{ title: string; inStock: boolean }>(2 * 60 * 1000, 200, 5 * 1024 * 1024); // 2分钟TTL, 200项, 5MB
+export const productCache = new OptimizedCacheManager<{ title: string; inStock: boolean }>(2 * 60 * 1000, 200, 5 * 1024 * 1024);
+
+/**
+ * XHS帖子缓存
+ */
+export const xhsPostCache = new OptimizedCacheManager<any>(10 * 60 * 1000, 1000, 20 * 1024 * 1024); // 10分钟TTL, 1000项, 20MB
+
+/**
+ * 时间过滤缓存
+ */
+export const timeFilterCache = new OptimizedCacheManager<boolean>(30 * 60 * 1000, 500, 2 * 1024 * 1024); // 30分钟TTL, 500项, 2MB
+
+/**
+ * 关键词匹配缓存
+ */
+export const keywordMatchCache = new OptimizedCacheManager<boolean>(60 * 60 * 1000, 1000, 5 * 1024 * 1024); // 1小时TTL, 1000项, 5MB
+
+/**
+ * 缓存管理器工厂
+ */
+export class CacheManagerFactory {
+  /**
+   * 创建专用缓存管理器
+   */
+  static createCache<T>(
+    name: string,
+    ttl: number = 5 * 60 * 1000,
+    maxSize: number = 1000,
+    maxMemory: number = 10 * 1024 * 1024
+  ): OptimizedCacheManager<T> {
+    const cache = new OptimizedCacheManager<T>(ttl, maxSize, maxMemory);
+    console.log(`✅ 创建缓存管理器: ${name} (TTL: ${ttl}ms, 最大项数: ${maxSize}, 最大内存: ${(maxMemory / 1024 / 1024).toFixed(1)}MB)`);
+    return cache;
+  }
+
+  /**
+   * 获取所有缓存统计
+   */
+  static getAllCacheStats() {
+    return {
+      global: globalCache.getStats(),
+      http: httpCache.getStats(),
+      product: productCache.getStats(),
+      xhsPost: xhsPostCache.getStats(),
+      timeFilter: timeFilterCache.getStats(),
+      keywordMatch: keywordMatchCache.getStats()
+    };
+  }
+
+  /**
+   * 清理所有缓存
+   */
+  static clearAllCaches(): void {
+    globalCache.clear();
+    httpCache.clear();
+    productCache.clear();
+    xhsPostCache.clear();
+    timeFilterCache.clear();
+    keywordMatchCache.clear();
+    console.log('🗑️ 所有缓存已清理');
+  }
+
+  /**
+   * 获取总内存使用情况
+   */
+  static getTotalMemoryUsage(): { current: number; max: number; percentage: number } {
+    const caches = [globalCache, httpCache, productCache, xhsPostCache, timeFilterCache, keywordMatchCache];
+
+    let totalCurrent = 0;
+    let totalMax = 0;
+
+    caches.forEach(cache => {
+      const usage = cache.getMemoryUsage();
+      totalCurrent += usage.current;
+      totalMax += usage.max;
+    });
+
+    return {
+      current: totalCurrent,
+      max: totalMax,
+      percentage: totalMax > 0 ? (totalCurrent / totalMax) * 100 : 0
+    };
+  }
+} // 2分钟TTL, 200项, 5MB
 
 /**
  * 页面内容缓存

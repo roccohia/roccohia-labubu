@@ -10,9 +10,12 @@
     "debug:xhs": "npx ts-node src/main.ts --xhs-only --debug",
     "sgpm": "npx ts-node src/sgpm-main.ts",
     "sgpm:dev": "npx ts-node src/sgpm-main.ts --debug",
+    "sgpm:optimized": "node --expose-gc --max-old-space-size=1024 -r ts-node/register src/sgpm-optimized-main.ts",
+    "sgpm:optimized:dev": "node --expose-gc --max-old-space-size=1024 -r ts-node/register src/sgpm-optimized-main.ts --debug",
     "optimized": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts",
     "optimized:xhs": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts --xhs-only",
     "optimized:debug": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts --debug",
+    "performance:test": "node --expose-gc --max-old-space-size=1024 -r ts-node/register scripts/performance-test.ts",
     "build": "npx tsc",
     "lint": "npx tsc --noEmit",
     "clean": "rm -rf dist node_modules/.cache"
