@@ -50,8 +50,12 @@ export class XhsScraper extends PageScraper {
       this.logger.warn(`页面URL: ${currentUrl}`);
       this.logger.warn('需要手动完成小红书APP扫码验证');
 
-      // 在GitHub Actions环境中，这个日志会被workflow脚本检测到
-      this.logger.info('页面标题: Security Verification'); // 确保触发workflow检测
+      // 只在GitHub Actions环境中输出标准化的检测标记，避免重复
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      if (isGitHubActions) {
+        // 使用统一的标记格式，让workflow脚本检测
+        this.logger.info('🔐 SECURITY_VERIFICATION_DETECTED 🔐');
+      }
     }
   }
 
