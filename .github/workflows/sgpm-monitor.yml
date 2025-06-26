@@ -14,7 +14,7 @@ on:
 
 env:
   NODE_ENV: production
-  USE_PROXY: true
+  USE_PROXY: false  # SGPM不需要代理
   PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: false
   PUPPETEER_DOWNLOAD_HOST: 'https://npmmirror.com/mirrors/chromium'
 
