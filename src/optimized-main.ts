@@ -344,13 +344,20 @@ async function main(): Promise<void> {
  */
 async function performEnvironmentChecks(): Promise<void> {
   logger.info('执行环境检查...');
-  
+
   // 验证环境变量
-  validateEnvironmentVariables();
-  
+  const requiredVars = ['BOT_TOKEN', 'CHAT_ID'];
+  const envValidation = validateEnvironmentVariables(requiredVars);
+  if (!envValidation.valid) {
+    throw new Error(`环境变量验证失败: ${envValidation.missing.join(', ')}`);
+  }
+
   // 验证配置
-  validateConfig();
-  
+  const configValidation = validateConfig();
+  if (!configValidation.valid) {
+    throw new Error(`配置验证失败: ${configValidation.errors.join(', ')}`);
+  }
+
   logger.info('环境检查完成');
 }
 
