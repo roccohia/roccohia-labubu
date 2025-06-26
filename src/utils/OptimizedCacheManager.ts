@@ -257,10 +257,12 @@ export class OptimizedCacheManager<T> {
     const total = this.stats.hits + this.stats.misses;
     const hitRate = total > 0 ? this.stats.hits / total : 0;
 
+    // 更新内存使用统计
+    this.stats.memoryUsage = this.currentMemory;
+
     return {
       size: this.cache.size,
       hitRate,
-      memoryUsage: this.currentMemory,
       maxMemory: this.maxMemory,
       ...this.stats
     };
