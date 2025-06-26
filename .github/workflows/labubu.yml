@@ -102,8 +102,41 @@ jobs:
 
       - name: Run Labubu monitoring tasks
         run: |
-          npx ts-node src/main.ts
+          # 运行监控任务并捕获输出
+          npx ts-node src/main.ts 2>&1 | tee monitoring.log
         timeout-minutes: 25
+
+      - name: Check for security verification
+        if: always()  # 总是检查，无论监控任务是否成功
+        run: |
+          # 给脚本执行权限
+          chmod +x scripts/check-security-verification.sh
+
+          # 运行安全验证检测脚本
+          ./scripts/check-security-verification.sh
+
+          # 捕获退出码
+          VERIFICATION_EXIT_CODE=$?
+
+          if [ $VERIFICATION_EXIT_CODE -eq 2 ]; then
+            echo "检测到安全验证要求"
+          elif [ $VERIFICATION_EXIT_CODE -eq 0 ]; then
+            echo "未检测到安全验证要求"
+          else
+            echo "安全验证检测脚本执行出错"
+          fi
+
+      - name: Upload monitoring logs
+        if: always()  # 总是上传日志，无论成功或失败
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-logs-${{ github.run_number }}
+          path: |
+            monitoring.log
+            debug-*.png
+            debug-*.html
+            *.log
+          retention-days: 7
 
       - name: Upload debug artifacts on failure
         if: failure()

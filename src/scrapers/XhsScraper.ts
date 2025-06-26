@@ -22,6 +22,40 @@ export class XhsScraper extends PageScraper {
   }
 
   /**
+   * 检查是否需要安全验证
+   */
+  private checkSecurityVerification(pageTitle: string, currentUrl: string): void {
+    const securityKeywords = [
+      'Security Verification',
+      '安全验证',
+      '扫码验证',
+      '人机验证',
+      '验证码',
+      'Verification Required',
+      'Please verify',
+      '需要验证',
+      '账号异常',
+      '登录验证',
+      'Captcha',
+      'Robot Check'
+    ];
+
+    const isSecurityPage = securityKeywords.some(keyword =>
+      pageTitle.includes(keyword) || currentUrl.includes(keyword.toLowerCase().replace(/\s+/g, ''))
+    );
+
+    if (isSecurityPage) {
+      this.logger.warn('🔐 检测到安全验证页面！');
+      this.logger.warn(`页面标题: ${pageTitle}`);
+      this.logger.warn(`页面URL: ${currentUrl}`);
+      this.logger.warn('需要手动完成小红书APP扫码验证');
+
+      // 在GitHub Actions环境中，这个日志会被workflow脚本检测到
+      this.logger.info('页面标题: Security Verification'); // 确保触发workflow检测
+    }
+  }
+
+  /**
    * 设置页面和Cookie
    */
   async setupPage(): Promise<void> {
@@ -97,6 +131,9 @@ export class XhsScraper extends PageScraper {
         const pageTitle = await this.getPageTitle();
         this.logger.info(`当前页面URL: ${currentUrl}`);
         this.logger.info(`页面标题: ${pageTitle}`);
+
+        // 检查是否需要安全验证
+        this.checkSecurityVerification(pageTitle, currentUrl);
 
         return; // 成功，退出重试循环
 
@@ -275,6 +312,9 @@ export class XhsScraper extends PageScraper {
     this.logger.info(`页面标题: ${debugInfo.pageTitle}`);
     this.logger.info(`页面URL: ${debugInfo.pageUrl}`);
     this.logger.info(`页面HTML长度: ${debugInfo.htmlLength}`);
+
+    // 在详细模式下也检查安全验证
+    this.checkSecurityVerification(debugInfo.pageTitle, debugInfo.pageUrl);
     this.logger.info(`选择器测试结果:`);
     for (const [selector, count] of Object.entries(debugInfo.selectorResults)) {
       this.logger.info(`  ${selector}: ${count} 个元素`);
