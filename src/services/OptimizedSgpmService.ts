@@ -273,9 +273,12 @@ export class OptimizedSgpmService {
         };
       }
     } catch (error: any) {
-      const errorMsg = error?.message || error?.code || 'Unknown error';
-      const statusCode = error?.response?.status || 'No response';
-      this.logger.error(`❌ 网络请求失败: ${url} (${errorMsg}, 状态: ${statusCode})`);
+      // 安全地提取错误信息，避免循环引用
+      const errorMsg = error?.message || error?.code || String(error) || 'Unknown error';
+      const statusCode = error?.response?.status || error?.status || 'No response';
+      const errorType = error?.name || error?.constructor?.name || 'Error';
+
+      this.logger.error(`❌ 网络请求失败: ${url} (${errorType}: ${errorMsg}, 状态: ${statusCode})`);
       this.stats.errors++;
 
       // 返回备用信息，但标记为错误状态

@@ -11,10 +11,32 @@ export class Logger {
     const baseMessage = `[${timestamp}] [${level}] ${message}`;
 
     if (data) {
-      return `${baseMessage}\n${JSON.stringify(data, null, 2)}`;
+      try {
+        // 安全的JSON序列化，避免循环引用
+        return `${baseMessage}\n${JSON.stringify(data, this.getCircularReplacer(), 2)}`;
+      } catch (error) {
+        // 如果序列化失败，返回字符串表示
+        return `${baseMessage}\n${String(data)}`;
+      }
     }
 
     return baseMessage;
+  }
+
+  /**
+   * 处理循环引用的replacer函数
+   */
+  private getCircularReplacer() {
+    const seen = new WeakSet();
+    return (key: string, value: any) => {
+      if (typeof value === "object" && value !== null) {
+        if (seen.has(value)) {
+          return "[Circular]";
+        }
+        seen.add(value);
+      }
+      return value;
+    };
   }
 
   info(message: string, data?: any): void {
@@ -30,11 +52,25 @@ export class Logger {
   }
 
   error(message: string, error?: Error | any): void {
-    const errorData = error instanceof Error ? {
-      name: error.name,
-      message: error.message,
-      stack: error.stack
-    } : error;
+    let errorData: any;
+
+    if (error instanceof Error) {
+      errorData = {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      };
+    } else if (error && typeof error === 'object') {
+      // 安全地提取对象属性，避免循环引用
+      errorData = {
+        message: error.message || error.code || 'Unknown error',
+        name: error.name || error.constructor?.name || 'Error',
+        status: error.status || error.response?.status,
+        type: typeof error
+      };
+    } else {
+      errorData = String(error);
+    }
 
     console.error('\x1b[31m%s\x1b[0m', this.formatMessage('ERROR', message, errorData));
   }

@@ -234,8 +234,9 @@ export class OptimizedHttpClient {
         validateStatus: (status) => status < 500 // 4xx也算健康
       });
       return true;
-    } catch (error) {
-      this.logger.debug(`健康检查失败: ${url}`, error);
+    } catch (error: any) {
+      const errorMsg = error?.message || error?.code || 'Unknown error';
+      this.logger.debug(`健康检查失败: ${url} (${errorMsg})`);
       return false;
     }
   }
