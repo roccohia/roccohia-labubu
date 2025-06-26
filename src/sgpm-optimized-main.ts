@@ -177,7 +177,7 @@ async function main(): Promise<void> {
 
     // 7. 性能统计和清理
     const serviceStats = sgpmService.getPerformanceStats();
-    const duration = serviceStats.endTime - serviceStats.startTime;
+    const duration = Math.max(serviceStats.endTime - serviceStats.startTime, 1); // 确保正数且至少1ms
     const efficiency = serviceStats.totalChecks > 0 ? (serviceStats.totalChecks / (duration / 1000)).toFixed(1) : 0;
     const cacheRate = serviceStats.totalChecks > 0 ? ((serviceStats.cacheHits / serviceStats.totalChecks) * 100).toFixed(1) : 0;
 

@@ -108,6 +108,7 @@ export class OptimizedSgpmService {
    */
   async checkProducts(): Promise<void> {
     this.stats.startTime = Date.now();
+    this.stats.endTime = 0; // 重置结束时间
     this.logger.info(`🚀 开始高性能检查 ${this.config.productUrls.length} 个SGPM产品`);
     
     try {
@@ -251,8 +252,8 @@ export class OptimizedSgpmService {
       };
       
     } catch (error) {
-      this.logger.warn(`⚠️ 网络请求失败: ${url}`, error);
-      
+      this.logger.debug(`⚠️ 网络请求失败: ${url}`, error);
+
       // 返回备用信息
       const fallbackInfo = this.extractProductInfoFromUrl(url);
       return {
@@ -426,7 +427,10 @@ export class OptimizedSgpmService {
     for (const result of results) {
       const { url, title, inStock, price, availability } = result;
       
-      this.logger.info(`📦 ${title}: ${inStock ? '✅ 有货' : '❌ 缺货'}${price ? ` (${price})` : ''}`);
+      // 只显示有货的产品，减少日志噪音
+      if (inStock) {
+        this.logger.info(`📦 ${title}: ✅ 有货${price ? ` (${price})` : ''}`);
+      }
       
       const previousStatus = currentStatus[url];
       const statusChanged = !previousStatus || previousStatus.inStock !== inStock;
@@ -442,7 +446,10 @@ export class OptimizedSgpmService {
       
       if (statusChanged) {
         statusChanges++;
-        this.logger.info(`🔄 状态变化: ${previousStatus?.inStock ? '有货' : '缺货'} → ${inStock ? '有货' : '缺货'}`);
+        // 只记录重要的状态变化（变为有货）
+        if (inStock) {
+          this.logger.info(`🔄 状态变化: 缺货 → 有货`);
+        }
       }
       
       // 只在有货时发送通知
@@ -519,17 +526,17 @@ export class OptimizedSgpmService {
    * 输出性能统计
    */
   private outputPerformanceStats(): void {
-    const duration = this.stats.endTime - this.stats.startTime;
+    // 确保结束时间已设置
+    if (this.stats.endTime === 0) {
+      this.stats.endTime = Date.now();
+    }
+
+    const duration = Math.max(this.stats.endTime - this.stats.startTime, 1); // 确保正数
     const cacheHitRate = this.stats.totalChecks > 0 ? (this.stats.cacheHits / this.stats.totalChecks * 100) : 0;
     
-    this.logger.info(`📊 SGPM高性能监控统计:`);
-    this.logger.info(`   ⏱️  总耗时: ${duration}ms`);
-    this.logger.info(`   🔍 总检查数: ${this.stats.totalChecks}`);
-    this.logger.info(`   📋 缓存命中: ${this.stats.cacheHits} (${cacheHitRate.toFixed(1)}%)`);
-    this.logger.info(`   🌐 网络请求: ${this.stats.networkRequests}`);
-    this.logger.info(`   📱 发送通知: ${this.stats.notifications}`);
-    this.logger.info(`   ❌ 错误数量: ${this.stats.errors}`);
-    this.logger.info(`   ⚡ 平均检查时间: ${this.stats.totalChecks > 0 ? (duration / this.stats.totalChecks).toFixed(1) : 0}ms/产品`);
+    // 简化统计输出
+    const avgTime = this.stats.totalChecks > 0 ? (duration / this.stats.totalChecks).toFixed(1) : 0;
+    this.logger.info(`📊 统计: ${this.stats.totalChecks}检查 | ${duration}ms | 缓存${cacheHitRate.toFixed(1)}% | 网络${this.stats.networkRequests} | 通知${this.stats.notifications} | 错误${this.stats.errors} | 平均${avgTime}ms/产品`);
   }
 
   /**
@@ -543,6 +550,11 @@ export class OptimizedSgpmService {
    * 获取性能统计
    */
   getPerformanceStats() {
+    // 确保结束时间已设置
+    if (this.stats.endTime === 0) {
+      this.stats.endTime = Date.now();
+    }
+
     return { ...this.stats };
   }
 
