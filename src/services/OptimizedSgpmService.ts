@@ -33,6 +33,7 @@ interface ProductCheckResult {
   availability?: string;
   checkTime: number;
   fromCache: boolean;
+  error?: boolean; // 标记是否为错误状态
 }
 
 /**
@@ -224,13 +225,19 @@ export class OptimizedSgpmService {
     // 2. 网络请求
     this.stats.networkRequests++;
     this.logger.debug(`🌐 网络请求: ${url}`);
-    
+
     try {
       const response = await this.httpClient.get(url, {
         cache: true,
         cacheTTL: 2 * 60 * 1000, // 2分钟HTTP缓存
-        timeout: this.config.timeout
+        timeout: this.config.timeout,
+        headers: {
+          ...this.config.headers,
+          'User-Agent': this.config.userAgent
+        }
       });
+
+      this.logger.debug(`✅ 网络请求成功: ${url} (状态: ${response.status})`);
 
       const html = response.data;
       const productInfo = this.extractProductInfoFromHTML(html, url);
@@ -251,17 +258,21 @@ export class OptimizedSgpmService {
         fromCache: false
       };
       
-    } catch (error) {
-      this.logger.debug(`⚠️ 网络请求失败: ${url}`, error);
+    } catch (error: any) {
+      const errorMsg = error?.message || error?.code || 'Unknown error';
+      const statusCode = error?.response?.status || 'No response';
+      this.logger.warn(`⚠️ 网络请求失败: ${url} (${errorMsg}, 状态: ${statusCode})`);
+      this.stats.errors++;
 
-      // 返回备用信息
+      // 返回备用信息，但标记为错误状态
       const fallbackInfo = this.extractProductInfoFromUrl(url);
       return {
         url,
         title: fallbackInfo.title,
-        inStock: false,
+        inStock: false, // 网络失败时无法确定库存状态
         checkTime: Date.now(),
-        fromCache: false
+        fromCache: false,
+        error: true // 标记为错误状态
       };
     }
   }
@@ -425,13 +436,19 @@ export class OptimizedSgpmService {
     let statusChanges = 0;
 
     for (const result of results) {
-      const { url, title, inStock, price, availability } = result;
-      
+      const { url, title, inStock, price, availability, error } = result;
+
+      // 如果是错误结果，跳过状态更新但记录错误
+      if (error) {
+        this.logger.warn(`❌ 跳过错误结果: ${title} (网络请求失败)`);
+        continue;
+      }
+
       // 只显示有货的产品，减少日志噪音
       if (inStock) {
         this.logger.info(`📦 ${title}: ✅ 有货${price ? ` (${price})` : ''}`);
       }
-      
+
       const previousStatus = currentStatus[url];
       const statusChanged = !previousStatus || previousStatus.inStock !== inStock;
       

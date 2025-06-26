@@ -16,6 +16,7 @@
     "optimized:xhs": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts --xhs-only",
     "optimized:debug": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts --debug",
     "performance:test": "node --expose-gc --max-old-space-size=1024 -r ts-node/register scripts/performance-test.ts",
+    "test:sgpm-urls": "npx ts-node scripts/test-sgpm-url.ts",
     "build": "npx tsc",
     "lint": "npx tsc --noEmit",
     "clean": "rm -rf dist node_modules/.cache"
