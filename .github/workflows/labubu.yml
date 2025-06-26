@@ -108,11 +108,16 @@ jobs:
             console.log('Configuration validation passed');
           "
 
-      - name: Run Labubu monitoring tasks
+      - name: Install additional dependencies
         run: |
-          # 运行监控任务并捕获输出
-          npx ts-node src/main.ts 2>&1 | tee monitoring.log
-        timeout-minutes: 25
+          # 安装优化版本需要的额外依赖
+          npm install axios
+
+      - name: Run Labubu monitoring tasks (Optimized)
+        run: |
+          # 运行优化版监控任务并捕获输出
+          npm run optimized 2>&1 | tee monitoring.log
+        timeout-minutes: 20  # 优化版本使用更短超时
 
       - name: Check for security verification
         if: always()  # 总是检查，无论监控任务是否成功
