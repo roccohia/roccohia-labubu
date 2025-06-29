@@ -452,8 +452,18 @@ export class OptimizedSgpmService {
     const htmlLower = html.toLowerCase();
 
     this.logger.info(`📄 HTML内容长度: ${html.length} 字符`);
-    const htmlPreview = html.substring(0, 300).replace(/\s+/g, ' ');
+    const htmlPreview = html.substring(0, 500).replace(/\s+/g, ' ');
     this.logger.info(`📄 HTML预览: ${htmlPreview}...`);
+
+    // 检查是否包含关键的按钮相关内容
+    const buttonKeywords = ['button', 'btn', 'cart', 'buy', 'purchase', 'notify', 'available'];
+    const foundKeywords = buttonKeywords.filter(keyword => htmlLower.includes(keyword));
+    this.logger.info(`🔍 发现的按钮关键词: ${foundKeywords.join(', ') || '无'}`);
+
+    // 检查是否是反爬虫页面
+    if (html.length < 1000 || html.includes('security check') || html.includes('verification')) {
+      this.logger.warn('⚠️ 疑似反爬虫页面或内容不完整');
+    }
 
     // 基于按钮文本的精确库存检测
     // 缺货按钮文本（优先检测）
@@ -887,17 +897,37 @@ export class OptimizedSgpmService {
             gotoError.message?.includes('Page is closed') ||
             gotoError.message?.includes('Navigating frame was detached') ||
             gotoError.message?.includes('Session closed')) {
-          this.logger.warn(`🔄 页面连接问题，采用保守策略: ${gotoError.message}`);
-          // 不抛出错误，而是返回保守的结果
-          return {
-            success: true,
-            title: this.extractTitleFromUrl(url),
-            inStock: false,
-            availability: 'Page connection failed - assumed out of stock',
-            error: gotoError.message
-          };
+          this.logger.warn(`🔄 页面连接问题，尝试重新获取浏览器: ${gotoError.message}`);
+
+          // 尝试重新获取浏览器实例并重试
+          try {
+            const newBrowserInstance = await this.getBrowserWithRetry();
+            page = newBrowserInstance.page;
+
+            // 重新设置用户代理
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
+
+            // 重新尝试导航
+            await page.goto(url, {
+              waitUntil: 'domcontentloaded',
+              timeout: 30000
+            });
+
+            this.logger.info('✅ 重新获取浏览器成功，继续处理');
+          } catch (retryError) {
+            this.logger.warn(`❌ 重试失败，采用保守策略: ${retryError}`);
+            // 只有在重试也失败时才使用保守策略
+            return {
+              success: true,
+              title: this.extractTitleFromUrl(url),
+              inStock: false,
+              availability: 'Page connection failed after retry - assumed out of stock',
+              error: `${gotoError.message} | Retry: ${retryError}`
+            };
+          }
+        } else {
+          throw gotoError;
         }
-        throw gotoError;
       }
 
       // 等待页面稳定
