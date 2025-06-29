@@ -65,6 +65,7 @@ export class OptimizedSgpmService {
   private envConfig: ReturnType<typeof getSgpmEnvConfig>;
   private currentUrl: string = '';
   private browserManager: OptimizedBrowserManager;
+  private static cookieHandled: boolean = false; // 全局 cookie 处理状态
   
   // 性能统计
   private stats = {
@@ -878,6 +879,13 @@ export class OptimizedSgpmService {
       // 等待页面稳定
       await new Promise(resolve => setTimeout(resolve, 3000));
 
+      // 处理 cookie 同意按钮（只在第一次访问时处理）
+      if (!OptimizedSgpmService.cookieHandled) {
+        await this.handleCookieConsent(page);
+        OptimizedSgpmService.cookieHandled = true;
+        this.logger.info('✅ Cookie 同意处理完成，后续页面将跳过此步骤');
+      }
+
       // 获取页面内容
       const html = await page.content();
       const title = await page.title();
@@ -1172,6 +1180,84 @@ export class OptimizedSgpmService {
     }
 
     throw new Error(`Failed to get browser instance after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
+  }
+
+  /**
+   * 处理 cookie 同意按钮
+   */
+  private async handleCookieConsent(page: Page): Promise<void> {
+    try {
+      this.logger.info('🍪 开始处理 cookie 同意按钮...');
+
+      // 等待页面完全加载
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // 常见的 cookie 同意按钮选择器
+      const cookieSelectors = [
+        // PopMart 可能的选择器
+        'button[id*="accept"]',
+        'button[class*="accept"]',
+        'button[id*="cookie"]',
+        'button[class*="cookie"]',
+        'button[id*="consent"]',
+        'button[class*="consent"]',
+        // 通用选择器
+        '[data-testid*="accept"]',
+        '[data-testid*="cookie"]',
+        '[aria-label*="accept"]',
+        '[aria-label*="Accept"]',
+        'button:contains("Accept")',
+        'button:contains("同意")',
+        'button:contains("接受")',
+        'button:contains("OK")',
+        'button:contains("确定")',
+        // 更宽泛的选择器
+        'button[type="button"]',
+        '.cookie-banner button',
+        '.consent-banner button',
+        '#cookie-banner button',
+        '#consent-banner button'
+      ];
+
+      let cookieHandled = false;
+
+      for (const selector of cookieSelectors) {
+        try {
+          // 检查按钮是否存在
+          const button = await page.$(selector);
+          if (button) {
+            // 检查按钮是否可见
+            const isVisible = await page.evaluate((el) => {
+              const style = window.getComputedStyle(el);
+              return style.display !== 'none' && style.visibility !== 'hidden' && (el as HTMLElement).offsetParent !== null;
+            }, button);
+
+            if (isVisible) {
+              this.logger.info(`🍪 找到 cookie 按钮: ${selector}`);
+              await button.click();
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              cookieHandled = true;
+              this.logger.info(`✅ 成功点击 cookie 按钮: ${selector}`);
+              break;
+            }
+          }
+        } catch (error) {
+          // 忽略单个选择器的错误，继续尝试下一个
+          continue;
+        }
+      }
+
+      if (!cookieHandled) {
+        this.logger.info('ℹ️ 未找到 cookie 同意按钮，可能页面不需要处理');
+      }
+
+      // 等待页面稳定
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+    } catch (error) {
+      this.logger.warn('⚠️ Cookie 处理过程中出现错误:', error);
+      // 不抛出错误，继续执行后续逻辑
+    }
   }
 
   /**
