@@ -711,22 +711,9 @@ export class OptimizedSgpmService {
     }
 
     const message = this.formatOptimizedMessage(result);
-    
-    // 使用SGPM专用的Telegram配置
-    const originalBotToken = process.env.BOT_TOKEN;
-    const originalChatId = process.env.CHAT_ID;
-    
-    // 临时设置SGPM配置
-    process.env.BOT_TOKEN = this.envConfig.botToken;
-    process.env.CHAT_ID = this.envConfig.chatId;
-    
-    try {
-      await sendTelegramMessage(message);
-    } finally {
-      // 恢复原始配置
-      if (originalBotToken) process.env.BOT_TOKEN = originalBotToken;
-      if (originalChatId) process.env.CHAT_ID = originalChatId;
-    }
+
+    // 直接使用 sendTelegramMessage，它现在支持 SGPM 环境变量
+    await sendTelegramMessage(message);
   }
 
   /**

@@ -4,15 +4,31 @@ import { logger } from './logger';
 
 dotenv.config();
 
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const CHAT_ID = process.env.CHAT_ID;
+// 支持多种环境变量配置
+function getConfig(): { botToken: string; chatId: string } {
+  // 优先使用 SGPM 专用配置
+  const sgpmBotToken = process.env.SGMP_BOT_TOKEN || process.env.SGPM_BOT_TOKEN;
+  const sgpmChatId = process.env.SGMP_CHAT_ID || process.env.SGPM_CHAT_ID;
+
+  // 如果有 SGPM 配置，使用 SGPM 配置
+  if (sgpmBotToken && sgpmChatId) {
+    return { botToken: sgpmBotToken, chatId: sgpmChatId };
+  }
+
+  // 否则使用通用配置
+  const botToken = process.env.BOT_TOKEN;
+  const chatId = process.env.CHAT_ID;
+
+  if (botToken && chatId) {
+    return { botToken, chatId };
+  }
+
+  throw new Error('请在环境变量中配置 SGPM_BOT_TOKEN 和 SGPM_CHAT_ID (或 BOT_TOKEN 和 CHAT_ID)');
+}
 
 // 验证必需的环境变量
 function validateConfig(): { botToken: string; chatId: string } {
-  if (!BOT_TOKEN || !CHAT_ID) {
-    throw new Error('请在环境变量中配置 BOT_TOKEN 和 CHAT_ID');
-  }
-  return { botToken: BOT_TOKEN, chatId: CHAT_ID };
+  return getConfig();
 }
 
 /**
