@@ -884,7 +884,9 @@ export class OptimizedSgpmService {
       } catch (gotoError: any) {
         if (gotoError.message?.includes('detached Frame') ||
             gotoError.message?.includes('Target closed') ||
-            gotoError.message?.includes('Page is closed')) {
+            gotoError.message?.includes('Page is closed') ||
+            gotoError.message?.includes('Navigating frame was detached') ||
+            gotoError.message?.includes('Session closed')) {
           this.logger.warn(`🔄 页面连接问题，采用保守策略: ${gotoError.message}`);
           // 不抛出错误，而是返回保守的结果
           return {
