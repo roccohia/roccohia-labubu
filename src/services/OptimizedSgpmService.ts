@@ -826,9 +826,16 @@ export class OptimizedSgpmService {
         throw new Error('Browser page is closed or invalid');
       }
 
-      // 设置更真实的用户代理和视口
+      // 设置更真实的用户代理（GitHub Actions中跳过视口设置）
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
-      await page.setViewport({ width: 1920, height: 1080 });
+
+      // GitHub Actions 中跳过视口设置以避免触摸模拟错误
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      if (!isGitHubActions) {
+        await page.setViewport({ width: 1920, height: 1080 });
+      } else {
+        this.logger.info('🔧 GitHub Actions环境：跳过视口设置以避免触摸模拟错误');
+      }
 
       // 设置额外的请求头
       await page.setExtraHTTPHeaders({
