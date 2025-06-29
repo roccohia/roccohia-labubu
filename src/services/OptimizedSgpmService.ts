@@ -329,21 +329,27 @@ export class OptimizedSgpmService {
     // 提取价格信息（增强版）
     let price: string | undefined;
     const pricePatterns = [
-      // 标准新加坡元格式
+      // 标准新加坡元格式（优先级最高）
       /S\$\s*(\d+(?:\.\d{2})?)/i,
       /SGD\s*(\d+(?:\.\d{2})?)/i,
+
+      // PopMart特定格式
+      /"price":\s*"?(\d+(?:\.\d{2})?)"?/i,
+      /"originalPrice":\s*"?(\d+(?:\.\d{2})?)"?/i,
+      /"salePrice":\s*"?(\d+(?:\.\d{2})?)"?/i,
+
+      // HTML元素中的价格（更精确的匹配）
+      /<span[^>]*class="[^"]*price[^"]*"[^>]*>[\s\S]*?S?\$\s*(\d+(?:\.\d{2})?)/i,
+      /<div[^>]*class="[^"]*price[^"]*"[^>]*>[\s\S]*?S?\$\s*(\d+(?:\.\d{2})?)/i,
+      /data-price="(\d+(?:\.\d{2})?)"/i,
+      /data-original-price="(\d+(?:\.\d{2})?)"/i,
 
       // 通用美元格式
       /\$\s*(\d+(?:\.\d{2})?)/i,
 
       // JSON数据中的价格
-      /"price"\s*:\s*"?(\d+(?:\.\d{2})?)"?/i,
       /"amount"\s*:\s*"?(\d+(?:\.\d{2})?)"?/i,
       /"value"\s*:\s*"?(\d+(?:\.\d{2})?)"?/i,
-
-      // HTML元素中的价格
-      /class="[^"]*price[^"]*"[^>]*>[\s\S]*?S?\$\s*(\d+(?:\.\d{2})?)/i,
-      /data-price="(\d+(?:\.\d{2})?)"/i,
 
       // 产品页面特定格式
       /售价[：:]\s*S?\$\s*(\d+(?:\.\d{2})?)/i,
@@ -351,7 +357,11 @@ export class OptimizedSgpmService {
 
       // 更宽泛的匹配
       /(\d+\.\d{2})\s*SGD/i,
-      /(\d+\.\d{2})\s*新币/i
+      /(\d+\.\d{2})\s*新币/i,
+
+      // 备用格式
+      /S\$(\d+)/i,  // 没有小数点的格式
+      /SGD(\d+)/i
     ];
 
     this.logger.info('🔍 开始提取价格信息...');
@@ -373,6 +383,19 @@ export class OptimizedSgpmService {
       const priceHints = html.match(/S\$[\d\.,]+|SGD[\d\.,]+|\$[\d\.,]+/gi);
       if (priceHints && priceHints.length > 0) {
         this.logger.info(`💡 发现价格线索: ${priceHints.slice(0, 3).join(', ')}`);
+
+        // 尝试从价格线索中提取第一个有效价格
+        for (const hint of priceHints.slice(0, 3)) {
+          const cleanHint = hint.replace(/[^\d\.]/g, '');
+          const numValue = parseFloat(cleanHint);
+          if (!isNaN(numValue) && numValue > 0 && numValue < 1000) { // 合理的价格范围
+            price = `S$${numValue.toFixed(2)}`;
+            this.logger.info(`💰 从价格线索提取到价格: ${price}`);
+            break;
+          }
+        }
+      } else {
+        this.logger.warn('💡 未发现任何价格线索');
       }
     }
 
@@ -611,30 +634,25 @@ export class OptimizedSgpmService {
   }
 
   /**
-   * 基于URL推断库存状态（更保守的策略）
+   * 基于URL推断库存状态（极度保守的策略）
    */
   private inferStockFromUrl(): boolean | null {
     // 基于产品类型的智能推断
     const currentUrl = this.currentUrl || '';
     const urlLower = currentUrl.toLowerCase();
 
-    // 只有非常明确的情况才进行推断
+    // 极度保守策略：只有明确知道缺货的情况才返回false，其他都返回null
 
-    // 盲盒套装通常有货（pop-now/set 类型）
-    if (urlLower.includes('/pop-now/set/')) {
-      return true;
-    }
-
-    // 明确的盲盒系列通常有货
-    if (urlLower.includes('blind-box') && urlLower.includes('series')) {
-      return true;
-    }
-
-    // 限定版或特殊版本通常缺货
+    // 明确的限定版或特殊版本通常缺货
     if (urlLower.includes('limited-edition') ||
-        urlLower.includes('exclusive-edition')) {
+        urlLower.includes('exclusive-edition') ||
+        urlLower.includes('sold-out') ||
+        urlLower.includes('discontinued')) {
       return false;
     }
+
+    // 移除之前错误的"有货"推断逻辑
+    // 不再基于URL类型推断为有货，因为这导致了误判
 
     // 其他情况无法推断，返回null让其他逻辑处理
     return null;
@@ -902,14 +920,15 @@ export class OptimizedSgpmService {
     } catch (error: any) {
       this.logger.error(`❌ 浏览器检查失败: ${url}`, error);
 
-      // 特殊处理 TargetCloseError
+      // 特殊处理 TargetCloseError - 保守策略，默认为缺货
       if (error.name === 'TargetCloseError' || error.message?.includes('Target closed')) {
-        this.logger.warn('🔄 检测到浏览器连接中断，尝试使用智能推断');
+        this.logger.warn('🔄 检测到浏览器连接中断，采用保守策略判断为缺货');
         return {
           success: true,
           title: this.extractTitleFromUrl(url),
-          inStock: this.inferStockFromUrl() ?? false,
-          availability: 'Inferred due to browser connection error'
+          inStock: false, // 保守策略：连接失败时默认为缺货
+          availability: 'Browser connection failed - assumed out of stock',
+          error: 'Browser connection interrupted'
         };
       }
 
