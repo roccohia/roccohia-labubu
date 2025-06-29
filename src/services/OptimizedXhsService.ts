@@ -226,7 +226,7 @@ export class OptimizedXhsService {
       }
 
       // 2. 时间过滤（缓存优化）
-      if (!(await this.isPostWithin1HourCached(post.publishTime))) {
+      if (!post.publishTime || !(await this.isPostWithin1HourCached(post.publishTime))) {
         this.stats.timeFiltered++;
         return null;
       }

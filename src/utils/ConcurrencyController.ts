@@ -185,10 +185,10 @@ export class ConcurrencyController {
     const taskId = task.id || `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const fullTask: Task<T> = {
       id: taskId,
-      priority: TaskPriority.NORMAL,
       timeout: this.config.defaultTimeout,
       retries: this.config.defaultRetries,
-      ...task
+      ...task,
+      priority: task.priority || TaskPriority.NORMAL
     };
 
     // 检查队列限制
@@ -329,7 +329,7 @@ export class ConcurrencyController {
         lastError = error;
         retryCount++;
 
-        if (error.message?.includes('任务超时')) {
+        if (error instanceof Error && error.message?.includes('任务超时')) {
           this.stats.timeoutTasks++;
         }
 

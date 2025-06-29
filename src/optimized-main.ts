@@ -13,9 +13,10 @@
  */
 
 import { logger } from './utils/logger';
-import { validateConfig, xhsConfig, sgpmConfig } from './config';
+import { validateConfig, xhsConfig } from './config';
+import { sgpmConfig } from './config-sgpm';
 import { validateEnvironmentVariables } from './utils/helpers';
-import { getResourceManager } from './utils/ResourceManager';
+import { getEnhancedResourceManager } from './utils/EnhancedResourceManager';
 import { OptimizedBrowserManager } from './core/OptimizedBrowserManager';
 import { getHttpClient, TelegramHttpClient } from './utils/OptimizedHttpClient';
 import { getDataProcessor } from './utils/OptimizedDataProcessor';
@@ -26,7 +27,7 @@ import { globalCache, httpCache, productCache } from './utils/OptimizedCacheMana
  */
 abstract class OptimizedMonitoringTask {
   protected logger = logger;
-  protected resourceManager = getResourceManager(logger);
+  protected resourceManager = getEnhancedResourceManager(logger);
   protected httpClient = getHttpClient(logger);
   protected dataProcessor = getDataProcessor(logger);
   protected browserManager: OptimizedBrowserManager;
@@ -48,8 +49,12 @@ abstract class OptimizedMonitoringTask {
 
     try {
       // 注册任务资源
-      this.resourceManager.register(taskId, 'memory', async () => {
-        this.browserManager.releaseBrowser();
+      this.resourceManager.register({
+        id: taskId,
+        type: 'browser' as any,
+        cleanup: async () => {
+          this.browserManager.releaseBrowser();
+        }
       });
 
       // 执行具体监控逻辑
@@ -63,7 +68,7 @@ abstract class OptimizedMonitoringTask {
       throw error;
     } finally {
       // 清理任务资源
-      await this.resourceManager.release(taskId);
+      await this.resourceManager.cleanup(taskId);
     }
   }
 
@@ -106,13 +111,18 @@ class OptimizedXhsTask extends OptimizedMonitoringTask {
   }
 
   protected async runMonitoring(): Promise<void> {
-    this.logger.info('优化版本暂时使用原版本逻辑以确保稳定性');
+    this.logger.info('⚠️ 优化版本的小红书监控功能正在开发中');
+    this.logger.info('📝 当前使用简化实现以保持系统稳定性');
 
-    // 临时回退到原版本的成熟实现
-    // 这样可以确保监控功能正常工作，同时保留优化的基础架构
+    // TODO: 实现完整的优化版本小红书监控逻辑
+    // 包括：
+    // - 使用 OptimizedBrowserManager 进行浏览器管理
+    // - 集成智能缓存机制
+    // - 批量数据处理
+    // - 性能监控和统计
 
-    this.logger.info('小红书监控功能暂时禁用，等待优化版本完善');
-    this.logger.info('如需使用小红书监控，请使用原版本: npm start');
+    this.logger.info('💡 如需完整的小红书监控功能，请使用标准版本: yarn start');
+    this.logger.info('🚀 SGPM 监控已完全优化，请使用: yarn sgpm:optimized');
   }
 
   private isSecurityVerificationPage(title: string): boolean {
@@ -179,18 +189,19 @@ class OptimizedPopMartTask extends OptimizedMonitoringTask {
   }
 
   protected async runMonitoring(): Promise<void> {
-    this.logger.info('优化版本暂时使用简化逻辑以避免超时问题');
+    this.logger.info('⚠️ 注意：此处为简化的 PopMart 监控实现');
+    this.logger.info('🚀 完整的 SGPM 优化监控请使用: yarn sgpm:optimized');
 
-    // 临时简化实现，避免复杂的浏览器操作导致超时
+    // 简化实现，避免在通用优化版本中包含复杂的浏览器操作
     const products = sgpmConfig.productUrls;
-    this.logger.info(`检查 ${products.length} 个产品的库存状态`);
+    this.logger.info(`📦 检查 ${products.length} 个产品的库存状态（简化模式）`);
 
-    // 模拟检查结果（避免实际的浏览器超时问题）
-    this.logger.info('PopMart监控功能暂时使用模拟数据');
-    this.logger.info('如需完整的PopMart监控，请使用原版本: npm start');
+    // 使用模拟数据以避免超时问题
+    this.logger.info('💡 当前使用模拟数据进行演示');
+    this.logger.info('🔗 如需完整的 PopMart 监控，请使用专用的 SGPM 服务');
 
-    // 这里可以添加简化的HTTP请求检查，而不是复杂的浏览器操作
-    this.logger.info('所有产品检查完成（模拟模式）');
+    // 建议使用专用的 SGPM 优化服务
+    this.logger.info('✅ 所有产品检查完成（演示模式）');
   }
 
   private async checkProduct(url: string): Promise<{ title: string; inStock: boolean }> {
@@ -238,7 +249,7 @@ class OptimizedPopMartTask extends OptimizedMonitoringTask {
  */
 class OptimizedTaskExecutor {
   private logger = logger;
-  private resourceManager = getResourceManager(logger);
+  private resourceManager = getEnhancedResourceManager(logger);
 
   async executeAll(tasks: OptimizedMonitoringTask[]): Promise<void> {
     this.logger.info(`开始执行 ${tasks.length} 个监控任务`);
@@ -270,7 +281,7 @@ async function main(): Promise<void> {
   const startTime = Date.now();
   logger.info('=== Labubu 监控系统启动（优化版）===');
 
-  const resourceManager = getResourceManager(logger);
+  const resourceManager = getEnhancedResourceManager(logger);
 
   try {
     // 1. 环境检查
@@ -297,7 +308,7 @@ async function main(): Promise<void> {
     process.exit(1);
   } finally {
     // 清理资源
-    await resourceManager.releaseAll();
+    await resourceManager.cleanupAll();
     
     // GitHub Actions环境立即退出
     if (process.env.GITHUB_ACTIONS === 'true') {
@@ -365,9 +376,10 @@ function createOptimizedTasks(): OptimizedMonitoringTask[] {
  * 输出性能统计
  */
 async function outputPerformanceStats(): Promise<void> {
-  const resourceManager = getResourceManager(logger);
-  const memoryInfo = resourceManager.getMemoryInfo();
-  const resourceStats = resourceManager.getResourceStats();
+  const resourceManager = getEnhancedResourceManager(logger);
+  const stats = resourceManager.getStats();
+  const memoryInfo = stats.memoryUsage;
+  const resourceStats = stats;
   const cacheStats = {
     global: globalCache.getStats(),
     http: httpCache.getStats(),
@@ -375,8 +387,8 @@ async function outputPerformanceStats(): Promise<void> {
   };
 
   logger.info('=== 性能统计 ===');
-  logger.info(`内存使用: ${(memoryInfo.heapUsed / 1024 / 1024).toFixed(2)}MB`);
-  logger.info(`活跃资源: ${resourceStats.total} 个`);
+  logger.info(`内存使用: ${memoryInfo.heapUsed}`);
+  logger.info(`活跃资源: ${resourceStats.currentResources} 个`);
   logger.info(`缓存命中率: 全局 ${(cacheStats.global.hitRate * 100).toFixed(1)}%, HTTP ${(cacheStats.http.hitRate * 100).toFixed(1)}%`);
 }
 

@@ -1,7 +1,5 @@
 import puppeteer, { Browser, Page } from 'puppeteer';
-import { launchWithRandomProxy } from '../utils/proxyLauncher';
 import { LoggerInstance } from '../utils/logger';
-import { ProxyConfig } from '../types';
 
 /**
  * 浏览器实例池
@@ -9,11 +7,10 @@ import { ProxyConfig } from '../types';
  */
 class BrowserPool {
   private static instance: BrowserPool;
-  private browsers: Map<string, { 
-    browser: Browser; 
-    page: Page; 
-    proxy: ProxyConfig | null; 
-    lastUsed: number; 
+  private browsers: Map<string, {
+    browser: Browser;
+    page: Page;
+    lastUsed: number;
     inUse: boolean;
     taskCount: number;
   }> = new Map();
@@ -42,7 +39,7 @@ class BrowserPool {
   /**
    * 获取可用的浏览器实例
    */
-  async getBrowser(): Promise<{ browser: Browser; page: Page; proxy: ProxyConfig | null; id: string }> {
+  async getBrowser(): Promise<{ browser: Browser; page: Page; id: string }> {
     // 查找空闲且未过度使用的浏览器实例
     for (const [id, instance] of this.browsers) {
       if (!instance.inUse && instance.taskCount < this.maxTasksPerBrowser) {
@@ -145,34 +142,22 @@ class BrowserPool {
   /**
    * 创建优化的浏览器实例
    */
-  private async createBrowserInstance(): Promise<{ browser: Browser; page: Page; proxy: ProxyConfig | null }> {
+  private async createBrowserInstance(): Promise<{ browser: Browser; page: Page }> {
     const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
-    
-    try {
-      // 尝试使用代理
-      const result = await launchWithRandomProxy();
-      
-      // 优化页面设置
-      await this.optimizePage(result.page, isGitHubActions);
-      
-      return result;
-    } catch (proxyError) {
-      this.logger.warn('代理启动失败，使用直接连接:', proxyError);
-      
-      // 直接连接
-      const browser = await puppeteer.launch({
-        headless: true,
-        args: this.getOptimizedBrowserArgs(isGitHubActions),
-        ignoreDefaultArgs: ['--enable-automation'],
-        defaultViewport: null,
-        timeout: 30000
-      });
 
-      const page = await browser.newPage();
-      await this.optimizePage(page, isGitHubActions);
-      
-      return { browser, page, proxy: null };
-    }
+    // 直接连接，不使用代理
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: this.getOptimizedBrowserArgs(isGitHubActions),
+      ignoreDefaultArgs: ['--enable-automation'],
+      defaultViewport: null,
+      timeout: 30000
+    });
+
+    const page = await browser.newPage();
+    await this.optimizePage(page, isGitHubActions);
+
+    return { browser, page };
   }
 
   /**
@@ -321,10 +306,10 @@ export class OptimizedBrowserManager {
   /**
    * 获取浏览器实例
    */
-  async getBrowser(): Promise<{ browser: Browser; page: Page; proxy: ProxyConfig | null }> {
+  async getBrowser(): Promise<{ browser: Browser; page: Page }> {
     const result = await OptimizedBrowserManager.pool.getBrowser();
     this.currentBrowserId = result.id;
-    return { browser: result.browser, page: result.page, proxy: result.proxy };
+    return { browser: result.browser, page: result.page };
   }
 
   /**

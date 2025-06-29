@@ -6,16 +6,16 @@ import { SgpmConfig } from './types';
  */
 export const sgpmConfig: SgpmConfig = {
   productUrls: [
+    'https://www.popmart.com/sg/pop-now/set/64',
     'https://www.popmart.com/sg/products/3877/THE-MONSTERS-Wacky-Mart-Series-Earphone-Case',
     'https://www.popmart.com/sg/products/1149/LABUBU-HIDE-AND-SEEK-IN-SINGAPORE-SERIES-Vinyl-Plush-Doll-Pendant',
     'https://www.popmart.com/sg/products/1712/THE-MONSTERS-COCA-COLA-SERIES-Vinyl-Face-Blind-Box',
-    'https://www.popmart.com/sg/products/4123/LABUBU-THE-MONSTERS-TASTY-MACARONS-SERIES-Vinyl-Face-Blind-Box',
     'https://www.popmart.com/sg/products/1898/THE-MONSTERS-FALL-IN-WILD-SERIES-Vinyl-Plush-Doll-Pendant',
     'https://www.popmart.com/sg/products/1715/THE-MONSTERS-FALL-IN-WILD-SERIES-Vinyl-Plush-Doll',
     'https://www.popmart.com/sg/products/5631/Hirono%20Living%20Wild-Fight%20for%20Joy%20Plush%20Doll',
     'https://www.popmart.com/sg/products/3651/TwinkleTwinkle-Bee-Your-Honey-Figure'
   ],
-  statusFile: './sgpm-status.json',
+  statusFile: './sgpm-products-status.json',
   maxRetries: 3,
   retryDelay: 2000,
   timeout: 30000,
@@ -47,7 +47,7 @@ export function validateSgpmConfig(): { valid: boolean; errors: string[] } {
   sgpmConfig.productUrls.forEach((url, index) => {
     try {
       new URL(url);
-      if (!url.includes('popmart.com/sg/products/')) {
+      if (!url.includes('popmart.com/sg/products/') && !url.includes('popmart.com/sg/pop-now/set/')) {
         errors.push(`URL ${index + 1} 不是有效的PopMart新加坡产品URL: ${url}`);
       }
     } catch {
@@ -84,8 +84,6 @@ export function getSgpmEnvConfig() {
   return {
     botToken: process.env.SGPM_BOT_TOKEN || process.env.BOT_TOKEN,
     chatId: process.env.SGPM_CHAT_ID || process.env.CHAT_ID,
-    useProxy: process.env.USE_PROXY === 'true',
-    proxyList: process.env.PROXY_LIST ? process.env.PROXY_LIST.split(',') : [],
     debugMode: process.env.DEBUG_MODE === 'true',
     isGitHubActions: process.env.GITHUB_ACTIONS === 'true'
   };

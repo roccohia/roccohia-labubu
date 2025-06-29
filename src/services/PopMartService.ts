@@ -2,7 +2,7 @@ import { PopMartScraper } from '../scrapers/PopMartScraper';
 import { LoggerInstance } from '../utils/logger';
 import { StatusManager } from '../utils/statusManager';
 import { sendTelegramMessage } from '../utils/sendTelegramMessage';
-import { httpCache, productCache } from '../utils/CacheManager';
+import { httpCache, productCache } from '../utils/OptimizedCacheManager';
 
 /**
  * PopMart产品状态接口

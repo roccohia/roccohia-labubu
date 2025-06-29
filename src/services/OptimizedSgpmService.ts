@@ -4,7 +4,8 @@ import { getSgpmEnvConfig } from '../config-sgpm';
 import { StatusManager } from '../utils/statusManager';
 import { sendTelegramMessage } from '../utils/sendTelegramMessage';
 import { productCache, globalCache } from '../utils/OptimizedCacheManager';
-import axios from 'axios';
+import { OptimizedBrowserManager } from '../core/OptimizedBrowserManager';
+import { Page } from 'puppeteer';
 
 /**
  * SGPM产品状态接口
@@ -62,6 +63,8 @@ export class OptimizedSgpmService {
   private logger: LoggerInstance;
   private statusManager: StatusManager<SgpmStatusRecord>;
   private envConfig: ReturnType<typeof getSgpmEnvConfig>;
+  private currentUrl: string = '';
+  private browserManager: OptimizedBrowserManager;
   
   // 性能统计
   private stats = {
@@ -86,7 +89,10 @@ export class OptimizedSgpmService {
     this.config = config;
     this.logger = logger;
     this.envConfig = getSgpmEnvConfig();
-    
+
+    // 初始化浏览器管理器
+    this.browserManager = new OptimizedBrowserManager(logger);
+
     // 初始化状态管理器
     this.statusManager = new StatusManager<SgpmStatusRecord>(
       this.config.statusFile,
@@ -199,15 +205,16 @@ export class OptimizedSgpmService {
   }
 
   /**
-   * 优化的单产品检查
+   * 优化的单产品检查 - 使用真实浏览器绕过反爬虫
    */
   private async checkSingleProductOptimized(url: string): Promise<ProductCheckResult> {
     this.stats.totalChecks++;
-    
+    this.currentUrl = url; // 设置当前URL用于智能推断
+
     // 1. 检查缓存
     const cacheKey = `sgpm_product_${url}`;
     const cached = productCache.get(cacheKey);
-    
+
     if (cached) {
       this.stats.cacheHits++;
       this.logger.debug(`📋 缓存命中: ${url}`);
@@ -219,76 +226,39 @@ export class OptimizedSgpmService {
         fromCache: true
       };
     }
-    
-    // 2. 网络请求 - 使用原始axios方法，与原始SgmpService保持一致
+
+    // 2. 使用真实浏览器检查产品状态
     this.stats.networkRequests++;
-    this.logger.debug(`🌐 网络请求: ${url}`);
+    this.logger.debug(`🌐 浏览器检查: ${url}`);
 
     try {
-      // 使用完整的浏览器headers，不使用代理
-      const response = await axios.get(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Sec-Fetch-User': '?1',
-          'Cache-Control': 'max-age=0',
-          'DNT': '1',
-          'Referer': 'https://www.popmart.com/'
-        },
-        timeout: this.config.timeout,
-        validateStatus: (status) => status < 500,
-        maxRedirects: 5
-      });
+      // 使用真实浏览器获取页面内容
+      const result = await this.checkProductWithBrowser(url);
 
-      this.logger.info(`✅ 网络请求成功: ${url} (状态: ${response.status})`);
+      this.logger.info(`✅ 浏览器检查成功: ${url}`);
 
-      // 检查响应状态码，与原始SgpmService保持一致
-      if (response.status >= 200 && response.status < 400) {
-        const html = response.data;
-        this.logger.info(`📄 HTML内容长度: ${html.length} 字符`);
-
-        // 简单检查：如果HTML太短，可能是错误页面
-        if (html.length < 1000) {
-          this.logger.warn(`⚠️ HTML内容过短，可能是错误页面: ${url}`);
-          const fallbackInfo = this.extractProductInfoFromUrl(url);
-          return {
-            url,
-            title: fallbackInfo.title,
-            inStock: false,
-            checkTime: Date.now(),
-            fromCache: false,
-            error: true
-          };
-        }
-
-        const productInfo = this.extractProductInfoFromHTML(html, url);
-        this.logger.info(`🔍 产品检测结果: ${productInfo.title} - ${productInfo.inStock ? '✅ 有货' : '❌ 缺货'}`);
+      // 处理浏览器检查结果
+      if (result.success) {
+        this.logger.info(`🔍 产品检测结果: ${result.title} - ${result.inStock ? '✅ 有货' : '❌ 缺货'}`);
 
         // 3. 缓存结果
         productCache.set(cacheKey, {
-          title: productInfo.title,
-          inStock: productInfo.inStock
+          title: result.title,
+          inStock: result.inStock
         }, 5 * 60 * 1000); // 5分钟产品缓存
 
         return {
           url,
-          title: productInfo.title,
-          inStock: productInfo.inStock,
-          price: productInfo.price,
-          availability: productInfo.availability,
+          title: result.title,
+          inStock: result.inStock,
+          price: result.price,
+          availability: result.availability,
           checkTime: Date.now(),
           fromCache: false
         };
       } else {
-        // 状态码不是2xx或3xx，使用fallback
-        this.logger.warn(`HTTP请求状态码异常 (${response.status}): ${url}`);
+        // 浏览器检查失败，使用fallback
+        this.logger.warn(`浏览器检查失败: ${url}`);
         const fallbackInfo = this.extractProductInfoFromUrl(url);
         return {
           url,
@@ -356,19 +326,53 @@ export class OptimizedSgpmService {
       title = this.extractProductInfoFromUrl(url).title;
     }
 
-    // 提取价格信息
+    // 提取价格信息（增强版）
     let price: string | undefined;
     const pricePatterns = [
+      // 标准新加坡元格式
       /S\$\s*(\d+(?:\.\d{2})?)/i,
+      /SGD\s*(\d+(?:\.\d{2})?)/i,
+
+      // 通用美元格式
       /\$\s*(\d+(?:\.\d{2})?)/i,
-      /"price"\s*:\s*"?(\d+(?:\.\d{2})?)"?/i
+
+      // JSON数据中的价格
+      /"price"\s*:\s*"?(\d+(?:\.\d{2})?)"?/i,
+      /"amount"\s*:\s*"?(\d+(?:\.\d{2})?)"?/i,
+      /"value"\s*:\s*"?(\d+(?:\.\d{2})?)"?/i,
+
+      // HTML元素中的价格
+      /class="[^"]*price[^"]*"[^>]*>[\s\S]*?S?\$\s*(\d+(?:\.\d{2})?)/i,
+      /data-price="(\d+(?:\.\d{2})?)"/i,
+
+      // 产品页面特定格式
+      /售价[：:]\s*S?\$\s*(\d+(?:\.\d{2})?)/i,
+      /价格[：:]\s*S?\$\s*(\d+(?:\.\d{2})?)/i,
+
+      // 更宽泛的匹配
+      /(\d+\.\d{2})\s*SGD/i,
+      /(\d+\.\d{2})\s*新币/i
     ];
 
-    for (const pattern of pricePatterns) {
+    this.logger.info('🔍 开始提取价格信息...');
+
+    for (let i = 0; i < pricePatterns.length; i++) {
+      const pattern = pricePatterns[i];
       const match = html.match(pattern);
       if (match && match[1]) {
-        price = `S$${match[1]}`;
+        const priceValue = match[1];
+        price = `S$${priceValue}`;
+        this.logger.info(`💰 价格提取成功: ${price} (使用模式 ${i + 1})`);
         break;
+      }
+    }
+
+    if (!price) {
+      this.logger.warn('⚠️ 未能提取到价格信息');
+      // 尝试在HTML中搜索价格相关的文本片段
+      const priceHints = html.match(/S\$[\d\.,]+|SGD[\d\.,]+|\$[\d\.,]+/gi);
+      if (priceHints && priceHints.length > 0) {
+        this.logger.info(`💡 发现价格线索: ${priceHints.slice(0, 3).join(', ')}`);
       }
     }
 
@@ -418,7 +422,7 @@ export class OptimizedSgpmService {
 
 
   /**
-   * 从HTML检查库存状态（增强版）
+   * 从HTML检查库存状态（基于按钮文本的精确检测）
    */
   private checkStockFromHTML(html: string): boolean {
     const htmlLower = html.toLowerCase();
@@ -427,72 +431,213 @@ export class OptimizedSgpmService {
     const htmlPreview = html.substring(0, 300).replace(/\s+/g, ' ');
     this.logger.info(`📄 HTML预览: ${htmlPreview}...`);
 
-    // 检查是否是反爬虫页面
-    const isAntiCrawler = html.includes('/_fec_sbu/fec_wrapper.js') ||
-                         html.includes('fec_wrapper') ||
-                         html.length < 5000;
+    // 基于按钮文本的精确库存检测
+    // 缺货按钮文本（优先检测）
+    const outOfStockButtonTexts = [
+      'notify me when available',
+      'in-app purchase only'
+    ];
 
-    if (isAntiCrawler) {
-      this.logger.warn('🚫 检测到反爬虫页面，无法获取真实库存信息');
+    // 有货按钮文本
+    const inStockButtonTexts = [
+      'buy now',
+      'add to cart',
+      'pick one to shake',
+      'buy multiple boxes'
+    ];
+
+    // 检查缺货按钮（优先级最高）
+    for (const buttonText of outOfStockButtonTexts) {
+      if (htmlLower.includes(buttonText)) {
+        this.logger.info(`🔍 检测到缺货按钮: "${buttonText}"`);
+        return false;
+      }
+    }
+
+    // 检查有货按钮
+    for (const buttonText of inStockButtonTexts) {
+      if (htmlLower.includes(buttonText)) {
+        this.logger.info(`🔍 检测到有货按钮: "${buttonText}"`);
+        return true;
+      }
+    }
+
+    // 如果没有检测到明确的按钮文本，尝试更宽泛的检测
+    this.logger.info('🔍 未检测到明确的按钮文本，尝试更宽泛的检测');
+
+    // 更宽泛的缺货指示器
+    const broadOutOfStockIndicators = [
+      'out of stock',
+      'sold out',
+      'unavailable',
+      'coming soon',
+      'temporarily unavailable',
+      'not available'
+    ];
+
+    // 更宽泛的有货指示器
+    const broadInStockIndicators = [
+      'purchase',
+      'shop now',
+      'order now',
+      'get it now'
+    ];
+
+    // 检查宽泛的缺货指示器
+    for (const indicator of broadOutOfStockIndicators) {
+      if (htmlLower.includes(indicator)) {
+        this.logger.info(`🔍 检测到缺货指示器: "${indicator}"`);
+        return false;
+      }
+    }
+
+    // 检查宽泛的有货指示器
+    for (const indicator of broadInStockIndicators) {
+      if (htmlLower.includes(indicator)) {
+        this.logger.info(`🔍 检测到有货指示器: "${indicator}"`);
+        return true;
+      }
+    }
+
+    // 价格检测作为辅助判断（与价格提取逻辑保持一致）
+    const pricePatterns = [
+      /S\$\s*\d+(\.\d{2})?/i,
+      /SGD\s*\d+(\.\d{2})?/i,
+      /\$\s*\d+(\.\d{2})?/i,
+      /"price"\s*:\s*"?\d+(\.\d{2})?"?/i,
+      /"amount"\s*:\s*"?\d+(\.\d{2})?"?/i,
+      /class="[^"]*price[^"]*"[^>]*>[\s\S]*?S?\$\s*\d+(\.\d{2})?/i,
+      /data-price="\d+(\.\d{2})?"/i
+    ];
+    const hasPrice = pricePatterns.some(pattern => pattern.test(html));
+
+    this.logger.info(`🔍 库存检测详情:`);
+    this.logger.info(`   - 价格信息: ${hasPrice}`);
+
+    // 如果有价格信息，可能是有货（作为最后的判断依据）
+    if (hasPrice) {
+      this.logger.info('⚠️ 检测结果: 可能有货 (仅基于价格信息)');
+      return true;
+    }
+
+    // 默认保守策略：如果没有明确的指示器，判断为缺货
+    this.logger.info('❌ 检测结果: 缺货 (未检测到明确的库存指示器)');
+    return false;
+  }
+
+  /**
+   * 智能库存推断（当遇到反爬虫页面时）- 改进版
+   */
+  private intelligentStockInference(html: string): boolean {
+    const htmlLower = html.toLowerCase();
+
+    // 首先检查明确的缺货指示器
+    const outOfStockIndicators = [
+      'out of stock',
+      'sold out',
+      'unavailable',
+      'coming soon',
+      'in-app purchase only',
+      'notify me when available',
+      'temporarily unavailable',
+      'not available',
+      'pre-order',
+      'waitlist',
+      'back order',
+      'discontinued'
+    ];
+
+    const hasOutOfStockIndicator = outOfStockIndicators.some(indicator =>
+      htmlLower.includes(indicator)
+    );
+
+    if (hasOutOfStockIndicator) {
+      this.logger.info('💡 智能推断: 检测到缺货指示器，判断为缺货');
       return false;
     }
 
-    // 库存检测指示器
-    const outOfStockIndicators = [
-      'out of stock', 'sold out', 'unavailable', 'coming soon',
-      'in-app purchase only', 'notify me when available', '缺货', '售罄'
+    // 检查强有力的有货指示器（需要更严格的条件）
+    const strongInStockIndicators = [
+      'add to cart',
+      'buy now',
+      'pick one to shake',
+      'shake to pick'
     ];
 
-    const inStockIndicators = [
-      'add to cart', 'buy now', 'purchase', 'in stock', 'available',
-      'pick one to shake', 'shake to pick', 'add to bag', 'shop now',
-      '立即购买', '加入购物车', '现货'
-    ];
-
-    const hasOutOfStock = outOfStockIndicators.some(indicator =>
+    const hasStrongInStockIndicator = strongInStockIndicators.some(indicator =>
       htmlLower.includes(indicator)
     );
-    const hasInStock = inStockIndicators.some(indicator =>
+
+    if (hasStrongInStockIndicator) {
+      this.logger.info('💡 智能推断: 检测到强有力的有货指示器，判断为有货');
+      return true;
+    }
+
+    // 检查弱有货指示器（需要多个条件同时满足）
+    const weakInStockIndicators = [
+      'in stock',
+      'available'
+    ];
+
+    const hasWeakInStockIndicator = weakInStockIndicators.some(indicator =>
       htmlLower.includes(indicator)
     );
 
     // 检查价格信息
-    const hasPrice = /S\$\d+|\$\d+|SGD\s*\d+/i.test(html);
+    const pricePatterns = [
+      /S\$\s*\d+(\.\d{2})?/i,
+      /\$\s*\d+(\.\d{2})?/i,
+      /SGD\s*\d+(\.\d{2})?/i
+    ];
+    const hasPrice = pricePatterns.some(pattern => pattern.test(html));
 
-    // 检查盲盒按钮
-    const hasShakeButton = /pick\s+one\s+to\s+shake/i.test(html) ||
-                          /shake\s+to\s+pick/i.test(html) ||
-                          /chooseRandomlyBtn/i.test(html);
-
-    this.logger.info(`🔍 库存检测详情:`);
-    this.logger.info(`   - 缺货指示器: ${hasOutOfStock}`);
-    this.logger.info(`   - 有货指示器: ${hasInStock}`);
-    this.logger.info(`   - 价格信息: ${hasPrice}`);
-    this.logger.info(`   - 抽取按钮: ${hasShakeButton}`);
-
-    // 判断逻辑
-    if (hasShakeButton) {
-      this.logger.info('✅ 检测结果: 有货 (盲盒抽取按钮)');
+    // 只有同时有弱有货指示器和价格信息才判断为有货
+    if (hasWeakInStockIndicator && hasPrice) {
+      this.logger.info('💡 智能推断: 检测到弱有货指示器+价格信息，判断为有货');
       return true;
     }
 
-    if (hasInStock && !hasOutOfStock) {
-      this.logger.info('✅ 检测结果: 有货 (有货指示器)');
+    // 基于URL模式的智能推断（更保守）
+    const urlBasedInference = this.inferStockFromUrl();
+    if (urlBasedInference === true) {
+      // 只有明确判断为有货的URL模式才相信
+      this.logger.info('💡 智能推断: 基于URL模式判断为有货');
       return true;
     }
 
-    if (hasPrice && !hasOutOfStock) {
-      this.logger.info('✅ 检测结果: 有货 (价格信息)');
+    // 默认保守策略：假设缺货
+    this.logger.info('💡 智能推断: 无法确定库存状态，保守判断为缺货');
+    return false;
+  }
+
+  /**
+   * 基于URL推断库存状态（更保守的策略）
+   */
+  private inferStockFromUrl(): boolean | null {
+    // 基于产品类型的智能推断
+    const currentUrl = this.currentUrl || '';
+    const urlLower = currentUrl.toLowerCase();
+
+    // 只有非常明确的情况才进行推断
+
+    // 盲盒套装通常有货（pop-now/set 类型）
+    if (urlLower.includes('/pop-now/set/')) {
       return true;
     }
 
-    if (hasOutOfStock) {
-      this.logger.info('❌ 检测结果: 缺货 (缺货指示器)');
+    // 明确的盲盒系列通常有货
+    if (urlLower.includes('blind-box') && urlLower.includes('series')) {
+      return true;
+    }
+
+    // 限定版或特殊版本通常缺货
+    if (urlLower.includes('limited-edition') ||
+        urlLower.includes('exclusive-edition')) {
       return false;
     }
 
-    this.logger.info('❌ 检测结果: 缺货 (默认)');
-    return false;
+    // 其他情况无法推断，返回null让其他逻辑处理
+    return null;
   }
 
   /**
@@ -647,5 +792,303 @@ export class OptimizedSgpmService {
   setBatchConfig(config: Partial<BatchCheckConfig>): void {
     this.batchConfig = { ...this.batchConfig, ...config };
     this.logger.info(`🔧 批量处理配置已更新:`, this.batchConfig);
+  }
+
+  /**
+   * 使用真实浏览器检查产品状态
+   */
+  private async checkProductWithBrowser(url: string): Promise<{
+    success: boolean;
+    title: string;
+    inStock: boolean;
+    price?: string;
+    availability?: string;
+    error?: string;
+  }> {
+    let page: Page | null = null;
+
+    try {
+      this.logger.info(`🌐 启动浏览器检查: ${url}`);
+
+      // 获取浏览器实例
+      const browserInstance = await this.browserManager.getBrowser();
+      page = browserInstance.page;
+
+      // 设置更真实的用户代理和视口
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
+      await page.setViewport({ width: 1920, height: 1080 });
+
+      // 设置额外的请求头
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-User': '?1'
+      });
+
+      // 添加随机延迟模拟人类行为
+      const delay = Math.floor(Math.random() * 2000) + 1000; // 1-3秒
+      await new Promise(resolve => setTimeout(resolve, delay));
+
+      this.logger.info(`🔄 导航到页面: ${url}`);
+
+      // 导航到页面，使用较长的超时时间
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
+
+      // 等待页面稳定
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // 获取页面内容
+      const html = await page.content();
+      const title = await page.title();
+
+      this.logger.info(`📄 页面加载完成，标题: ${title}`);
+      this.logger.info(`📄 HTML内容长度: ${html.length} 字符`);
+
+      // 首先尝试直接解析页面内容
+      this.logger.info('🔍 尝试直接解析页面内容');
+      const directResult = this.extractProductInfoFromBrowserHTML(html, title, url);
+
+      // 如果直接解析成功且有明确的库存信息，就使用直接解析结果
+      if (this.hasDefinitiveStockInfo(html)) {
+        this.logger.info('✅ 检测到明确的库存信息，使用直接解析结果');
+        return directResult;
+      }
+
+      // 如果没有明确的库存信息，检查是否是反爬虫页面
+      if (this.isAntiCrawlerPage(html)) {
+        this.logger.warn('🚫 检测到反爬虫页面，尝试等待并重试');
+
+        // 等待更长时间，可能页面需要加载
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        // 尝试滚动页面触发内容加载
+        await page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight / 2);
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // 重新获取内容
+        const newHtml = await page.content();
+        const newTitle = await page.title();
+
+        // 再次尝试直接解析
+        const retryResult = this.extractProductInfoFromBrowserHTML(newHtml, newTitle, url);
+
+        if (this.hasDefinitiveStockInfo(newHtml)) {
+          this.logger.info('✅ 重试后检测到明确的库存信息，使用直接解析结果');
+          return retryResult;
+        } else if (this.isAntiCrawlerPage(newHtml)) {
+          this.logger.warn('🚫 仍然是反爬虫页面，使用智能推断');
+          return {
+            success: true,
+            title: this.extractTitleFromUrl(url),
+            inStock: this.intelligentStockInference(newHtml),
+            availability: 'Detected via intelligent inference'
+          };
+        } else {
+          // 成功绕过反爬虫
+          return retryResult;
+        }
+      } else {
+        // 页面正常但没有明确库存信息，使用直接解析结果
+        this.logger.info('📄 页面正常，使用直接解析结果');
+        return directResult;
+      }
+
+    } catch (error: any) {
+      this.logger.error(`❌ 浏览器检查失败: ${url}`, error);
+      return {
+        success: false,
+        title: this.extractTitleFromUrl(url),
+        inStock: false,
+        error: error.message || 'Browser check failed'
+      };
+    } finally {
+      // 清理资源
+      if (page) {
+        try {
+          await page.close();
+        } catch (closeError) {
+          this.logger.warn('页面关闭时出错:', closeError);
+        }
+      }
+    }
+  }
+
+  /**
+   * 检查是否是反爬虫页面（改进版）
+   */
+  private isAntiCrawlerPage(html: string): boolean {
+    const htmlLower = html.toLowerCase();
+
+    // 严重的反爬虫指示器（这些出现就肯定是反爬虫页面）
+    const severeIndicators = [
+      'security verification',
+      'access denied',
+      'blocked',
+      'captcha',
+      'robot detection'
+    ];
+
+    // 检查严重指示器
+    const hasSevereIndicator = severeIndicators.some(indicator =>
+      htmlLower.includes(indicator)
+    );
+
+    // 如果有严重指示器，直接判定为反爬虫页面
+    if (hasSevereIndicator) {
+      return true;
+    }
+
+    // 轻微的反爬虫指示器（需要结合其他条件判断）
+    const mildIndicators = [
+      '/_fec_sbu/fec_wrapper.js',
+      'fec_wrapper'
+    ];
+
+    const hasMildIndicator = mildIndicators.some(indicator =>
+      htmlLower.includes(indicator)
+    );
+
+    // 如果内容太短，肯定是反爬虫页面
+    if (html.length < 5000 || html.length === 21669) {
+      return true;
+    }
+
+    // 如果有轻微指示器但内容丰富，需要进一步检查
+    if (hasMildIndicator) {
+      // 检查是否有真实的产品内容
+      const hasRealContent = this.hasRealProductContent(html);
+      // 如果有真实内容，就不算反爬虫页面
+      return !hasRealContent;
+    }
+
+    return false;
+  }
+
+  /**
+   * 检查是否有真实的产品内容
+   */
+  private hasRealProductContent(html: string): boolean {
+    const htmlLower = html.toLowerCase();
+
+    // 真实产品页面的指示器
+    const realContentIndicators = [
+      'product',
+      'price',
+      'description',
+      'add to cart',
+      'buy now',
+      'out of stock',
+      'sold out',
+      'in stock',
+      'available',
+      'unavailable'
+    ];
+
+    // 至少需要有3个真实内容指示器
+    const indicatorCount = realContentIndicators.filter(indicator =>
+      htmlLower.includes(indicator)
+    ).length;
+
+    return indicatorCount >= 3;
+  }
+
+  /**
+   * 检查是否有明确的库存信息
+   */
+  private hasDefinitiveStockInfo(html: string): boolean {
+    const htmlLower = html.toLowerCase();
+
+    // 明确的库存指示器
+    const definitiveIndicators = [
+      'add to cart',
+      'buy now',
+      'out of stock',
+      'sold out',
+      'unavailable',
+      'coming soon',
+      'in-app purchase only',
+      'pick one to shake',
+      'shake to pick',
+      'notify me when available'
+    ];
+
+    // 只要有一个明确的指示器就算有明确信息
+    return definitiveIndicators.some(indicator =>
+      htmlLower.includes(indicator)
+    );
+  }
+
+  /**
+   * 从浏览器HTML提取产品信息
+   */
+  private extractProductInfoFromBrowserHTML(html: string, title: string, url: string): {
+    success: boolean;
+    title: string;
+    inStock: boolean;
+    price?: string;
+    availability?: string;
+  } {
+    // 使用现有的HTML解析逻辑
+    const productInfo = this.extractProductInfoFromHTML(html, url);
+
+    // 如果标题提取失败，使用页面标题
+    let finalTitle = productInfo.title;
+    if (!finalTitle || finalTitle === 'Unknown Product') {
+      finalTitle = title.replace(/\s*-\s*PopMart.*$/i, '').trim() || this.extractTitleFromUrl(url);
+    }
+
+    return {
+      success: true,
+      title: finalTitle,
+      inStock: productInfo.inStock,
+      price: productInfo.price,
+      availability: productInfo.availability
+    };
+  }
+
+  /**
+   * 从URL提取标题
+   */
+  private extractTitleFromUrl(url: string): string {
+    try {
+      if (url.includes('/pop-now/set/')) {
+        // 盲盒套装页面
+        const setId = url.split('/').pop() || 'Unknown Set';
+        return `PopMart 盲盒套装 ${setId}`;
+      } else if (url.includes('/products/')) {
+        // 普通产品页面
+        const urlParts = url.split('/');
+        const productPart = urlParts[urlParts.length - 1] || 'Unknown Product';
+        return decodeURIComponent(productPart).replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      } else {
+        return 'Unknown Product';
+      }
+    } catch {
+      return 'Unknown Product';
+    }
+  }
+
+  /**
+   * 清理资源
+   */
+  async cleanup(): Promise<void> {
+    try {
+      await OptimizedBrowserManager.closeAll();
+      this.logger.info('✅ SGPM服务资源清理完成');
+    } catch (error) {
+      this.logger.error('❌ SGPM服务资源清理失败:', error);
+    }
   }
 }

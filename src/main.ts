@@ -48,7 +48,6 @@ async function main(): Promise<void> {
     logger.success(`=== 监控系统执行完成，总耗时: ${duration}ms ===`);
 
     // 5. 在GitHub Actions中立即强制退出，避免卡住
-    const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
     if (isGitHubActions) {
       logger.info('GitHub Actions环境：立即退出进程');
       process.exit(0);

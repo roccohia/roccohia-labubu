@@ -184,6 +184,7 @@ async function main(): Promise<void> {
     logger.info(`✅ 完成: ${efficiency}检查/秒 | 缓存${cacheRate}% | 网络${serviceStats.networkRequests}次 | 耗时${duration}ms`);
 
     // 8. 清理资源
+    await sgpmService.cleanup();
     await resourceManager.cleanupAll();
     if (isGitHubActions) {
       httpCache.clear();

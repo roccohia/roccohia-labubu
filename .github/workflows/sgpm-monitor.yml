@@ -60,7 +60,7 @@ jobs:
 
       - name: Check SGPM status
         run: |
-          echo "📋 状态文件: $([ -f 'sgpm-status.json' ] && echo '✅ 存在' || echo '❌ 不存在')"
+          echo "📋 状态文件: $([ -f 'sgpm-products-status.json' ] && echo '✅ 存在' || echo '❌ 不存在')"
 
       - name: Run SGPM monitoring
         run: |
@@ -72,7 +72,7 @@ jobs:
         if: always()
         run: |
           # 简化的结果检查
-          STATUS_FILE=$([ -f "sgpm-status.json" ] && echo "✅" || echo "❌")
+          STATUS_FILE=$([ -f "sgpm-products-status.json" ] && echo "✅" || echo "❌")
           LOG_LINES=$([ -f "sgpm-monitoring.log" ] && wc -l < sgpm-monitoring.log || echo "0")
           ERRORS=$([ -f "sgpm-monitoring.log" ] && grep -c -i "error\|fail" sgpm-monitoring.log 2>/dev/null || echo "0")
           SUCCESS=$([ -f "sgpm-monitoring.log" ] && grep -c -i "✅\|完成\|成功" sgpm-monitoring.log 2>/dev/null || echo "0")
