@@ -189,7 +189,18 @@ class BrowserPool {
       page.setDefaultTimeout(isGitHubActions ? 45000 : 15000);
       page.setDefaultNavigationTimeout(isGitHubActions ? 45000 : 15000);
 
-      await this.optimizePage(page, isGitHubActions);
+      // GitHub Actions 中完全跳过页面优化以避免任何模拟调用
+      if (isGitHubActions) {
+        console.log('GitHub Actions环境：跳过页面优化以避免模拟错误');
+        // 只设置最基本的用户代理，不做任何其他设置
+        try {
+          await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        } catch (uaError) {
+          console.warn('设置用户代理失败，继续使用默认值:', uaError);
+        }
+      } else {
+        await this.optimizePage(page, isGitHubActions);
+      }
 
       return { browser, page };
 
@@ -350,7 +361,32 @@ class BrowserPool {
         '--disable-accelerated-2d-canvas',
         '--disable-accelerated-video-decode',
         '--disable-gpu-sandbox',
-        '--disable-software-rasterizer'
+        '--disable-software-rasterizer',
+        // 激进的模拟禁用参数
+        '--disable-features=UserAgentClientHint',
+        '--disable-features=WebXR',
+        '--disable-features=VirtualKeyboard',
+        '--disable-blink-features=UserAgentClientHint',
+        '--disable-blink-features=WebXR',
+        '--disable-blink-features=VirtualKeyboard',
+        '--disable-blink-features=DeviceMemoryAPI',
+        '--disable-blink-features=NavigatorDeviceMemory',
+        '--disable-device-discovery-notifications',
+        '--disable-device-orientation',
+        '--disable-sensors',
+        '--disable-generic-sensor',
+        '--disable-generic-sensor-extra-classes',
+        // 最激进的解决方案：禁用整个模拟系统
+        '--disable-features=DeviceEmulation',
+        '--disable-features=TouchEmulation',
+        '--disable-features=ViewportEmulation',
+        '--disable-features=ScreenOrientationAPI',
+        '--disable-blink-features=DeviceEmulation',
+        '--disable-blink-features=TouchEmulation',
+        '--disable-blink-features=ViewportEmulation',
+        '--disable-blink-features=ScreenOrientationAPI',
+        '--force-device-scale-factor=1',
+        '--disable-lcd-text'
       );
     }
 
