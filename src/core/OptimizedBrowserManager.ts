@@ -149,16 +149,25 @@ class BrowserPool {
 
     try {
       // 直接连接，不使用代理
-      browser = await puppeteer.launch({
+      const launchOptions: any = {
         headless: true,
         args: this.getOptimizedBrowserArgs(isGitHubActions),
         ignoreDefaultArgs: ['--enable-automation'],
-        defaultViewport: null,
         timeout: isGitHubActions ? 90000 : 30000, // GitHub Actions 中使用更长的超时时间
         handleSIGINT: false,
         handleSIGTERM: false,
         handleSIGHUP: false
-      });
+      };
+
+      // GitHub Actions 中完全禁用默认视口
+      if (isGitHubActions) {
+        launchOptions.defaultViewport = null;
+        console.log('GitHub Actions环境：禁用默认视口以避免触摸模拟');
+      } else {
+        launchOptions.defaultViewport = { width: 1920, height: 1080 };
+      }
+
+      browser = await puppeteer.launch(launchOptions);
 
       // 验证浏览器是否成功启动
       if (!browser || !browser.isConnected()) {
@@ -228,22 +237,15 @@ class BrowserPool {
       // 设置用户代理
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-      // 安全设置视口，避免触摸模拟问题
+      // 安全设置视口，完全避免触摸模拟问题
       if (isGitHubActions) {
-        // GitHub Actions 中使用最简单的视口设置，避免触摸相关功能
-        await page.setViewport({
-          width: 1280,
-          height: 720,
-          deviceScaleFactor: 1
-        });
+        // GitHub Actions 中跳过视口设置，使用默认值
+        console.log('GitHub Actions环境：跳过视口设置以避免触摸模拟错误');
       } else {
-        // 本地环境使用完整设置
+        // 本地环境使用简化设置
         await page.setViewport({
           width: 1920,
-          height: 1080,
-          deviceScaleFactor: 1,
-          isMobile: false,
-          hasTouch: false
+          height: 1080
         });
       }
 
@@ -319,7 +321,15 @@ class BrowserPool {
         '--disable-domain-reliability',
         '--no-first-run',
         '--no-default-browser-check',
-        '--disable-default-apps'
+        '--disable-default-apps',
+        // 完全禁用触摸和模拟相关功能
+        '--disable-touch-events',
+        '--disable-touch-adjustment',
+        '--disable-gesture-typing',
+        '--disable-touch-drag-drop',
+        '--disable-pinch',
+        '--disable-device-emulation',
+        '--disable-mobile-emulation'
       );
     }
 
