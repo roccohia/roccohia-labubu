@@ -856,11 +856,24 @@ export class OptimizedSgpmService {
 
       this.logger.info(`🔄 导航到页面: ${url}`);
 
-      // 导航到页面，使用较长的超时时间
-      await page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000
-      });
+      // 导航到页面，使用较长的超时时间（增强错误处理）
+      try {
+        // 验证页面是否仍然有效
+        if (page.isClosed()) {
+          throw new Error('Page is closed before navigation');
+        }
+
+        await page.goto(url, {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000
+        });
+      } catch (gotoError: any) {
+        if (gotoError.message?.includes('detached Frame') || gotoError.message?.includes('Target closed')) {
+          this.logger.warn(`🔄 页面Frame分离，尝试重新获取浏览器: ${gotoError.message}`);
+          throw new Error('Frame detached - need new browser instance');
+        }
+        throw gotoError;
+      }
 
       // 等待页面稳定
       await new Promise(resolve => setTimeout(resolve, 3000));
