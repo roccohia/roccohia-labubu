@@ -140,61 +140,124 @@ class BrowserPool {
   }
 
   /**
-   * 创建优化的浏览器实例
+   * 创建优化的浏览器实例（增强错误处理）
    */
   private async createBrowserInstance(): Promise<{ browser: Browser; page: Page }> {
     const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+    let browser: Browser | null = null;
+    let page: Page | null = null;
 
-    // 直接连接，不使用代理
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: this.getOptimizedBrowserArgs(isGitHubActions),
-      ignoreDefaultArgs: ['--enable-automation'],
-      defaultViewport: null,
-      timeout: isGitHubActions ? 60000 : 30000, // GitHub Actions 中使用更长的超时时间
-      handleSIGINT: false,
-      handleSIGTERM: false,
-      handleSIGHUP: false
-    });
+    try {
+      // 直接连接，不使用代理
+      browser = await puppeteer.launch({
+        headless: true,
+        args: this.getOptimizedBrowserArgs(isGitHubActions),
+        ignoreDefaultArgs: ['--enable-automation'],
+        defaultViewport: null,
+        timeout: isGitHubActions ? 90000 : 30000, // GitHub Actions 中使用更长的超时时间
+        handleSIGINT: false,
+        handleSIGTERM: false,
+        handleSIGHUP: false
+      });
 
-    const page = await browser.newPage();
+      // 验证浏览器是否成功启动
+      if (!browser || !browser.isConnected()) {
+        throw new Error('Browser failed to start or connect');
+      }
 
-    // 设置页面超时
-    page.setDefaultTimeout(isGitHubActions ? 30000 : 15000);
-    page.setDefaultNavigationTimeout(isGitHubActions ? 30000 : 15000);
+      page = await browser.newPage();
 
-    await this.optimizePage(page, isGitHubActions);
+      // 验证页面是否成功创建
+      if (!page || page.isClosed()) {
+        throw new Error('Page failed to create or was closed');
+      }
 
-    return { browser, page };
+      // 设置页面超时
+      page.setDefaultTimeout(isGitHubActions ? 45000 : 15000);
+      page.setDefaultNavigationTimeout(isGitHubActions ? 45000 : 15000);
+
+      await this.optimizePage(page, isGitHubActions);
+
+      return { browser, page };
+
+    } catch (error) {
+      // 清理资源
+      if (page && !page.isClosed()) {
+        try {
+          await page.close();
+        } catch (closeError) {
+          console.warn('Failed to close page during cleanup:', closeError);
+        }
+      }
+
+      if (browser && browser.isConnected()) {
+        try {
+          await browser.close();
+        } catch (closeError) {
+          console.warn('Failed to close browser during cleanup:', closeError);
+        }
+      }
+
+      throw error;
+    }
   }
 
   /**
-   * 优化页面设置
+   * 优化页面设置（GitHub Actions 安全版）
    */
   private async optimizePage(page: Page, isGitHubActions: boolean): Promise<void> {
-    // 设置超时时间
-    const timeout = isGitHubActions ? 45000 : 60000;
-    await page.setDefaultTimeout(timeout);
-    await page.setDefaultNavigationTimeout(timeout);
+    try {
+      // 设置超时时间
+      const timeout = isGitHubActions ? 45000 : 60000;
+      await page.setDefaultTimeout(timeout);
+      await page.setDefaultNavigationTimeout(timeout);
 
-    // 禁用不必要的资源加载以提升性能
-    await page.setRequestInterception(true);
-    page.on('request', (request) => {
-      const resourceType = request.resourceType();
-      
-      // 阻止加载图片、字体、样式表等非必要资源
-      if (['image', 'font', 'stylesheet', 'media'].includes(resourceType)) {
-        request.abort();
+      // 禁用不必要的资源加载以提升性能
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const resourceType = request.resourceType();
+
+        // 阻止加载图片、字体、样式表等非必要资源
+        if (['image', 'font', 'stylesheet', 'media'].includes(resourceType)) {
+          request.abort();
+        } else {
+          request.continue();
+        }
+      });
+
+      // 设置用户代理
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+      // 安全设置视口，避免触摸模拟问题
+      if (isGitHubActions) {
+        // GitHub Actions 中使用最简单的视口设置，避免触摸相关功能
+        await page.setViewport({
+          width: 1280,
+          height: 720,
+          deviceScaleFactor: 1
+        });
       } else {
-        request.continue();
+        // 本地环境使用完整设置
+        await page.setViewport({
+          width: 1920,
+          height: 1080,
+          deviceScaleFactor: 1,
+          isMobile: false,
+          hasTouch: false
+        });
       }
-    });
 
-    // 设置用户代理
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    
-    // 设置视口
-    await page.setViewport({ width: 1920, height: 1080 });
+    } catch (error) {
+      console.warn('页面优化设置失败，使用默认设置:', error);
+      // 如果设置失败，至少确保基本功能可用
+      try {
+        const timeout = isGitHubActions ? 45000 : 60000;
+        await page.setDefaultTimeout(timeout);
+        await page.setDefaultNavigationTimeout(timeout);
+      } catch (timeoutError) {
+        console.warn('设置超时失败:', timeoutError);
+      }
+    }
   }
 
   /**
@@ -238,8 +301,25 @@ class BrowserPool {
         '--disable-logging',
         '--disable-dev-tools',
         '--disable-plugins',
-        '--virtual-time-budget=10000', // 限制执行时间为10秒
-        '--max_old_space_size=512' // GitHub Actions中进一步限制内存
+        '--virtual-time-budget=15000', // 增加执行时间限制
+        '--max_old_space_size=512', // GitHub Actions中进一步限制内存
+        // 额外的稳定性参数
+        '--disable-extensions-http-throttling',
+        '--disable-component-extensions-with-background-pages',
+        '--disable-default-apps',
+        '--disable-sync',
+        '--disable-translate',
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-client-side-phishing-detection',
+        '--disable-popup-blocking',
+        '--disable-prompt-on-repost',
+        '--disable-hang-monitor',
+        '--disable-domain-reliability',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-default-apps'
       );
     }
 
