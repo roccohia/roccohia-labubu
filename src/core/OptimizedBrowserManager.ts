@@ -152,19 +152,23 @@ class BrowserPool {
       const launchOptions: any = {
         headless: true,
         args: this.getOptimizedBrowserArgs(isGitHubActions),
-        ignoreDefaultArgs: ['--enable-automation'],
         timeout: isGitHubActions ? 90000 : 30000, // GitHub Actions 中使用更长的超时时间
         handleSIGINT: false,
         handleSIGTERM: false,
         handleSIGHUP: false
       };
 
-      // GitHub Actions 中完全禁用默认视口
+      // GitHub Actions 中完全禁用默认视口和自动化检测
       if (isGitHubActions) {
         launchOptions.defaultViewport = null;
-        console.log('GitHub Actions环境：禁用默认视口以避免触摸模拟');
+        launchOptions.ignoreDefaultArgs = [
+          '--enable-automation',
+          '--enable-blink-features=IdleDetection'
+        ];
+        console.log('GitHub Actions环境：禁用默认视口和自动化特性以避免触摸模拟');
       } else {
         launchOptions.defaultViewport = { width: 1920, height: 1080 };
+        launchOptions.ignoreDefaultArgs = ['--enable-automation'];
       }
 
       browser = await puppeteer.launch(launchOptions);
@@ -221,21 +225,28 @@ class BrowserPool {
       await page.setDefaultTimeout(timeout);
       await page.setDefaultNavigationTimeout(timeout);
 
-      // 禁用不必要的资源加载以提升性能
-      await page.setRequestInterception(true);
-      page.on('request', (request) => {
-        const resourceType = request.resourceType();
+      // GitHub Actions 中简化资源处理
+      if (isGitHubActions) {
+        // 只设置用户代理，避免其他可能触发模拟的操作
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        console.log('GitHub Actions环境：使用简化的页面设置');
+      } else {
+        // 本地环境使用完整的资源拦截
+        await page.setRequestInterception(true);
+        page.on('request', (request) => {
+          const resourceType = request.resourceType();
 
-        // 阻止加载图片、字体、样式表等非必要资源
-        if (['image', 'font', 'stylesheet', 'media'].includes(resourceType)) {
-          request.abort();
-        } else {
-          request.continue();
-        }
-      });
+          // 阻止加载图片、字体、样式表等非必要资源
+          if (['image', 'font', 'stylesheet', 'media'].includes(resourceType)) {
+            request.abort();
+          } else {
+            request.continue();
+          }
+        });
 
-      // 设置用户代理
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        // 设置用户代理
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      }
 
       // 安全设置视口，完全避免触摸模拟问题
       if (isGitHubActions) {
@@ -329,7 +340,17 @@ class BrowserPool {
         '--disable-touch-drag-drop',
         '--disable-pinch',
         '--disable-device-emulation',
-        '--disable-mobile-emulation'
+        '--disable-mobile-emulation',
+        // 额外的模拟禁用参数
+        '--disable-features=TouchEventFeatureDetection',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-blink-features=TouchEventFeatureDetection',
+        '--disable-blink-features=MobileLayoutTheme',
+        '--disable-blink-features=PointerEvent',
+        '--disable-accelerated-2d-canvas',
+        '--disable-accelerated-video-decode',
+        '--disable-gpu-sandbox',
+        '--disable-software-rasterizer'
       );
     }
 
