@@ -79,6 +79,102 @@ jobs:
 
           echo "📊 结果: 状态文件${STATUS_FILE} | 日志${LOG_LINES}行 | 错误${ERRORS} | 成功${SUCCESS}"
 
+      - name: 🐛 调试窗口 - 错误分析
+        if: always()
+        run: |
+          echo "==================== 🐛 调试窗口开始 ===================="
+          echo "📅 运行时间: $(date)"
+          echo "🔢 运行编号: ${{ github.run_number }}"
+          echo "🌐 环境信息: GitHub Actions (ubuntu-latest)"
+          echo ""
+
+          # 检查状态文件
+          if [ -f "sgpm-products-status.json" ]; then
+            echo "📋 状态文件: ✅ 存在"
+            echo "📄 状态文件大小: $(wc -c < sgpm-products-status.json) bytes"
+          else
+            echo "📋 状态文件: ❌ 不存在"
+          fi
+          echo ""
+
+          # 分析日志文件
+          if [ -f "sgpm-monitoring.log" ]; then
+            echo "📊 日志统计:"
+            echo "  - 总行数: $(wc -l < sgpm-monitoring.log)"
+            echo "  - 错误数: $(grep -c -i "error\|fail\|❌" sgpm-monitoring.log 2>/dev/null || echo "0")"
+            echo "  - 警告数: $(grep -c -i "warn\|⚠️" sgpm-monitoring.log 2>/dev/null || echo "0")"
+            echo "  - 成功数: $(grep -c -i "✅\|完成\|成功" sgpm-monitoring.log 2>/dev/null || echo "0")"
+            echo ""
+
+            # 显示最后的错误信息
+            echo "🔴 最近的错误信息:"
+            echo "----------------------------------------"
+            grep -i "error\|fail\|❌" sgpm-monitoring.log | tail -10 || echo "无错误信息"
+            echo "----------------------------------------"
+            echo ""
+
+            # 显示最后的警告信息
+            echo "🟡 最近的警告信息:"
+            echo "----------------------------------------"
+            grep -i "warn\|⚠️" sgpm-monitoring.log | tail -5 || echo "无警告信息"
+            echo "----------------------------------------"
+            echo ""
+
+            # 显示浏览器相关错误
+            echo "🌐 浏览器相关错误:"
+            echo "----------------------------------------"
+            grep -i "browser\|puppeteer\|target\|session\|protocol" sgpm-monitoring.log | grep -i "error\|fail" | tail -5 || echo "无浏览器错误"
+            echo "----------------------------------------"
+            echo ""
+
+            # 显示最后几行日志
+            echo "📝 最后10行日志:"
+            echo "----------------------------------------"
+            tail -10 sgpm-monitoring.log
+            echo "----------------------------------------"
+          else
+            echo "📊 日志文件: ❌ 不存在"
+          fi
+
+          echo ""
+          echo "💡 复制上面的错误信息给开发者分析"
+          echo "==================== 🐛 调试窗口结束 ===================="
+
+      - name: 📋 错误摘要 - 快速复制区域
+        if: failure()
+        run: |
+          echo "==================== 📋 错误摘要 (快速复制) ===================="
+          echo "🚨 运行失败 - 关键错误信息:"
+          echo ""
+
+          if [ -f "sgpm-monitoring.log" ]; then
+            # 提取关键错误信息
+            echo "🔥 致命错误:"
+            grep -i "error.*:" sgpm-monitoring.log | tail -3 || echo "无致命错误"
+            echo ""
+
+            echo "⚠️ 浏览器问题:"
+            grep -i "targetcloseerror\|protocol error\|session closed\|browser.*fail" sgpm-monitoring.log | tail -3 || echo "无浏览器问题"
+            echo ""
+
+            echo "🔧 连接问题:"
+            grep -i "connection\|timeout\|abort\|refused" sgpm-monitoring.log | tail -3 || echo "无连接问题"
+            echo ""
+
+            echo "💥 异常堆栈:"
+            grep -A 2 -i "stack.*:" sgpm-monitoring.log | tail -6 || echo "无异常堆栈"
+            echo ""
+          fi
+
+          echo "📊 快速统计:"
+          echo "- 运行编号: ${{ github.run_number }}"
+          echo "- 时间: $(date)"
+          echo "- 错误数: $([ -f "sgpm-monitoring.log" ] && grep -c -i "error" sgpm-monitoring.log || echo "0")"
+          echo "- 状态文件: $([ -f "sgpm-products-status.json" ] && echo "存在" || echo "缺失")"
+          echo ""
+          echo "🔗 完整日志: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "==================== 📋 错误摘要结束 ===================="
+
       - name: Upload logs
         if: failure()  # 只在失败时上传日志
         uses: actions/upload-artifact@v4
