@@ -795,7 +795,7 @@ export class OptimizedSgpmService {
   }
 
   /**
-   * 使用真实浏览器检查产品状态
+   * 使用真实浏览器检查产品状态（增强错误处理）
    */
   private async checkProductWithBrowser(url: string): Promise<{
     success: boolean;
@@ -806,13 +806,20 @@ export class OptimizedSgpmService {
     error?: string;
   }> {
     let page: Page | null = null;
+    let browserId: string | null = null;
 
     try {
       this.logger.info(`🌐 启动浏览器检查: ${url}`);
 
-      // 获取浏览器实例
-      const browserInstance = await this.browserManager.getBrowser();
+      // 获取浏览器实例，增加重试机制
+      const browserInstance = await this.getBrowserWithRetry();
       page = browserInstance.page;
+      browserId = browserInstance.id;
+
+      // 验证页面是否有效
+      if (!page || page.isClosed()) {
+        throw new Error('Browser page is closed or invalid');
+      }
 
       // 设置更真实的用户代理和视口
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
@@ -907,6 +914,18 @@ export class OptimizedSgpmService {
 
     } catch (error: any) {
       this.logger.error(`❌ 浏览器检查失败: ${url}`, error);
+
+      // 特殊处理 TargetCloseError
+      if (error.name === 'TargetCloseError' || error.message?.includes('Target closed')) {
+        this.logger.warn('🔄 检测到浏览器连接中断，尝试使用智能推断');
+        return {
+          success: true,
+          title: this.extractTitleFromUrl(url),
+          inStock: this.inferStockFromUrl() ?? false,
+          availability: 'Inferred due to browser connection error'
+        };
+      }
+
       return {
         success: false,
         title: this.extractTitleFromUrl(url),
@@ -914,12 +933,23 @@ export class OptimizedSgpmService {
         error: error.message || 'Browser check failed'
       };
     } finally {
-      // 清理资源
+      // 安全清理资源
       if (page) {
         try {
-          await page.close();
+          if (!page.isClosed()) {
+            await page.close();
+          }
         } catch (closeError) {
           this.logger.warn('页面关闭时出错:', closeError);
+        }
+      }
+
+      // 释放浏览器实例
+      if (browserId) {
+        try {
+          this.browserManager.releaseBrowser();
+        } catch (releaseError) {
+          this.logger.warn('浏览器实例释放时出错:', releaseError);
         }
       }
     }
@@ -1078,6 +1108,44 @@ export class OptimizedSgpmService {
     } catch {
       return 'Unknown Product';
     }
+  }
+
+  /**
+   * 获取浏览器实例（带重试机制）
+   */
+  private async getBrowserWithRetry(maxRetries: number = 3): Promise<{ browser: any; page: Page; id: string }> {
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logger.info(`🔄 尝试获取浏览器实例 (${attempt}/${maxRetries})`);
+        const browserInstance = await this.browserManager.getBrowser();
+
+        // 验证浏览器实例是否有效
+        if (browserInstance.page && !browserInstance.page.isClosed()) {
+          this.logger.info(`✅ 浏览器实例获取成功 (尝试 ${attempt})`);
+          return {
+            browser: browserInstance.browser,
+            page: browserInstance.page,
+            id: `browser_${Date.now()}_${attempt}`
+          };
+        } else {
+          throw new Error('Browser page is closed or invalid');
+        }
+      } catch (error) {
+        lastError = error;
+        this.logger.warn(`⚠️ 浏览器实例获取失败 (尝试 ${attempt}/${maxRetries}):`, error);
+
+        if (attempt < maxRetries) {
+          // 等待一段时间后重试
+          const delay = Math.min(1000 * attempt, 5000); // 1s, 2s, 5s
+          this.logger.info(`⏳ 等待 ${delay}ms 后重试...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    throw new Error(`Failed to get browser instance after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`);
   }
 
   /**

@@ -151,10 +151,18 @@ class BrowserPool {
       args: this.getOptimizedBrowserArgs(isGitHubActions),
       ignoreDefaultArgs: ['--enable-automation'],
       defaultViewport: null,
-      timeout: 30000
+      timeout: isGitHubActions ? 60000 : 30000, // GitHub Actions 中使用更长的超时时间
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false
     });
 
     const page = await browser.newPage();
+
+    // 设置页面超时
+    page.setDefaultTimeout(isGitHubActions ? 30000 : 15000);
+    page.setDefaultNavigationTimeout(isGitHubActions ? 30000 : 15000);
+
     await this.optimizePage(page, isGitHubActions);
 
     return { browser, page };
@@ -217,14 +225,21 @@ class BrowserPool {
       '--ignore-certificate-errors',
       '--window-size=1920,1080',
       '--memory-pressure-off', // 禁用内存压力检测
-      '--max_old_space_size=2048', // 限制内存使用
+      '--max_old_space_size=1024', // 限制内存使用（减少到1GB）
     ];
 
     if (isGitHubActions) {
       baseArgs.push(
         '--disable-background-networking',
         '--disable-ipc-flooding-protection',
-        '--single-process' // GitHub Actions中使用单进程模式
+        '--single-process', // GitHub Actions中使用单进程模式
+        '--disable-crash-reporter',
+        '--disable-in-process-stack-traces',
+        '--disable-logging',
+        '--disable-dev-tools',
+        '--disable-plugins',
+        '--virtual-time-budget=10000', // 限制执行时间为10秒
+        '--max_old_space_size=512' // GitHub Actions中进一步限制内存
       );
     }
 
