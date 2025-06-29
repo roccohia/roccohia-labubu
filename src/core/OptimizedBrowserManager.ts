@@ -106,25 +106,47 @@ class BrowserPool {
         }
       }, 100);
 
-      // 10秒后超时，强制创建新实例
+      // GitHub Actions 使用更短的超时时间
+      const timeoutMs = process.env.GITHUB_ACTIONS === 'true' ? 5000 : 10000;
       setTimeout(async () => {
         clearInterval(checkInterval);
         try {
           const id = `browser_timeout_${Date.now()}`;
+          this.logger.warn(`等待浏览器实例超时，强制创建新实例: ${id}`);
           const instance = await this.createBrowserInstance();
-          this.browsers.set(id, { 
-            ...instance, 
-            lastUsed: Date.now(), 
+          this.browsers.set(id, {
+            ...instance,
+            lastUsed: Date.now(),
             inUse: true,
             taskCount: 1
           });
-          this.logger.warn(`超时创建新浏览器实例: ${id}`);
+          this.logger.info(`✅ 超时创建新浏览器实例成功: ${id}`);
           resolve({ ...instance, id });
         } catch (error) {
-          this.logger.error('超时创建浏览器实例失败:', error);
-          throw error;
+          this.logger.error('❌ 超时创建浏览器实例失败:', error);
+          // 在 GitHub Actions 中，如果创建失败，尝试使用更简单的配置
+          if (process.env.GITHUB_ACTIONS === 'true') {
+            try {
+              this.logger.warn('🔄 尝试使用最简配置创建浏览器实例...');
+              const fallbackBrowser = await this.createFallbackBrowserInstance();
+              const fallbackId = `browser_fallback_${Date.now()}`;
+              this.browsers.set(fallbackId, {
+                ...fallbackBrowser,
+                lastUsed: Date.now(),
+                inUse: true,
+                taskCount: 1
+              });
+              this.logger.info(`✅ 备用浏览器实例创建成功: ${fallbackId}`);
+              resolve({ ...fallbackBrowser, id: fallbackId });
+            } catch (fallbackError) {
+              this.logger.error('❌ 备用浏览器实例创建也失败:', fallbackError);
+              throw fallbackError;
+            }
+          } else {
+            throw error;
+          }
         }
-      }, 10000);
+      }, timeoutMs);
     });
   }
 
@@ -140,7 +162,7 @@ class BrowserPool {
   }
 
   /**
-   * 创建优化的浏览器实例（增强错误处理）
+   * 创建优化的浏览器实例（增强错误处理和简化启动）
    */
   private async createBrowserInstance(): Promise<{ browser: Browser; page: Page }> {
     const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
@@ -148,11 +170,11 @@ class BrowserPool {
     let page: Page | null = null;
 
     try {
-      // 直接连接，不使用代理
+      // GitHub Actions 使用极简配置，本地环境使用完整配置
       const launchOptions: any = {
         headless: true,
-        args: this.getOptimizedBrowserArgs(isGitHubActions),
-        timeout: isGitHubActions ? 90000 : 30000, // GitHub Actions 中使用更长的超时时间
+        args: isGitHubActions ? this.getMinimalBrowserArgs() : this.getOptimizedBrowserArgs(false),
+        timeout: isGitHubActions ? 60000 : 30000, // 减少 GitHub Actions 超时时间
         handleSIGINT: false,
         handleSIGTERM: false,
         handleSIGHUP: false
@@ -282,6 +304,109 @@ class BrowserPool {
         console.warn('设置超时失败:', timeoutError);
       }
     }
+  }
+
+  /**
+   * 创建备用浏览器实例（最简配置）
+   */
+  private async createFallbackBrowserInstance(): Promise<{ browser: Browser; page: Page }> {
+    let browser: Browser | null = null;
+    let page: Page | null = null;
+
+    try {
+      // 使用最简配置
+      const launchOptions: any = {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--single-process',
+          '--no-first-run'
+        ],
+        timeout: 30000,
+        defaultViewport: null,
+        ignoreDefaultArgs: ['--enable-automation']
+      };
+
+      this.logger.info('🔄 使用最简配置启动浏览器...');
+      browser = await puppeteer.launch(launchOptions);
+
+      if (!browser || !browser.isConnected()) {
+        throw new Error('Fallback browser failed to start');
+      }
+
+      page = await browser.newPage();
+
+      if (!page || page.isClosed()) {
+        throw new Error('Fallback page failed to create');
+      }
+
+      // 设置基本超时
+      page.setDefaultTimeout(30000);
+      page.setDefaultNavigationTimeout(30000);
+
+      // 只设置用户代理，不做其他设置
+      try {
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      } catch (uaError) {
+        this.logger.warn('备用实例设置用户代理失败，继续使用默认值');
+      }
+
+      this.logger.info('✅ 备用浏览器实例创建成功');
+      return { browser, page };
+
+    } catch (error) {
+      // 清理资源
+      if (page && !page.isClosed()) {
+        try {
+          await page.close();
+        } catch (closeError) {
+          // 忽略清理错误
+        }
+      }
+
+      if (browser && browser.isConnected()) {
+        try {
+          await browser.close();
+        } catch (closeError) {
+          // 忽略清理错误
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * 获取极简的浏览器启动参数（GitHub Actions专用）
+   */
+  private getMinimalBrowserArgs(): string[] {
+    return [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--headless',
+      '--disable-web-security',
+      '--disable-features=VizDisplayCompositor',
+      '--single-process',
+      '--no-first-run',
+      '--disable-default-apps',
+      '--disable-extensions',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-hang-monitor',
+      '--disable-prompt-on-repost',
+      '--disable-sync',
+      '--disable-translate',
+      '--mute-audio',
+      '--hide-scrollbars',
+      '--virtual-time-budget=30000',
+      '--max_old_space_size=512'
+    ];
   }
 
   /**
