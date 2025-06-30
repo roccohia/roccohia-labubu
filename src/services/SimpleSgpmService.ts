@@ -111,45 +111,71 @@ export class SimpleSgpmService {
     }
 
     const page = await this.browser.newPage();
-    
+
     try {
       // 设置用户代理
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-      
+
+      this.logger.info(`🌐 导航到页面: ${url}`);
+
       // 导航到页面
       await page.goto(url, {
-        waitUntil: 'networkidle2',
+        waitUntil: 'domcontentloaded',
         timeout: 30000
       });
 
       // 等待页面初始加载
-      await this.delay(3000);
+      await this.delay(2000);
 
-      // 处理Cookie同意按钮
+      // 第一件事：处理Cookie同意按钮
+      this.logger.info('🍪 第一步：处理Cookie同意按钮');
       await this.handleCookieConsent(page);
 
-      // Cookie处理后，等待页面重新稳定
-      await this.delay(5000);
+      // Cookie处理后，等待页面完全重新加载
+      this.logger.info('⏳ 等待页面完全加载...');
+      await this.delay(8000);
 
-      // 检查当前URL是否与目标URL一致
-      const currentUrl = page.url();
-      if (currentUrl !== url) {
-        this.logger.warn(`⚠️ 页面URL发生变化: ${url} → ${currentUrl}`);
-        // 如果URL变化，尝试重新导航到目标URL
-        await page.goto(url, {
-          waitUntil: 'networkidle2',
-          timeout: 30000
-        });
-        await this.delay(3000);
-      }
-      
+      // 滚动页面确保所有内容加载
+      await this.scrollPage(page);
+
       // 提取产品信息
       const productInfo = await this.extractProductInfo(page);
-      
+
       return productInfo;
-      
+
     } finally {
       await page.close();
+    }
+  }
+
+  /**
+   * 滚动页面确保所有内容加载
+   */
+  private async scrollPage(page: Page): Promise<void> {
+    try {
+      this.logger.info('📜 滚动页面加载所有内容...');
+
+      // 滚动到页面底部
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight);
+      });
+      await this.delay(2000);
+
+      // 滚动回顶部
+      await page.evaluate(() => {
+        window.scrollTo(0, 0);
+      });
+      await this.delay(1000);
+
+      // 滚动到中间位置
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight / 2);
+      });
+      await this.delay(1000);
+
+      this.logger.info('✅ 页面滚动完成');
+    } catch (error) {
+      this.logger.warn('⚠️ 页面滚动失败:', error);
     }
   }
 
@@ -447,122 +473,101 @@ export class SimpleSgpmService {
   }
 
   /**
-   * 提取库存状态（基于按钮文字，排除Cookie按钮）
+   * 提取库存状态（使用精确的PopMart选择器）
    */
   private async extractStockStatus(page: Page): Promise<{ inStock: boolean; buttonText: string }> {
     this.logger.info('🔍 开始提取库存状态...');
 
     // 等待页面完全加载
-    await this.delay(2000);
+    await this.delay(3000);
 
-    // 更具体的PopMart按钮选择器
-    const buttonSelectors = [
-      // PopMart 特定的按钮选择器
-      '.ant-btn',
-      '.index_chooseRandomlyBtn__upKXA', // Pick One to Shake 按钮
-      '.index_addToCartBtn__xxx', // Add to Cart 按钮
-      '.index_buyNowBtn__xxx', // Buy Now 按钮
-      '.index_notifyBtn__xxx', // Notify Me 按钮
-      // 通用选择器
-      'button[class*="btn"]',
-      'button[class*="Button"]',
-      'button[class*="add"]',
-      'button[class*="buy"]',
-      'button[class*="cart"]',
-      'button[class*="notify"]',
-      'button',
-      '.btn',
-      '.button',
-      '[role="button"]'
+    // 用户提供的精确库存按钮选择器
+    const stockButtonSelectors = [
+      // 主要产品页面的库存按钮
+      '#__next > div > div > div.layout_pcLayout__49ZwP > div.products_container__T0mpL > div.products_headerBlock__CESKr > div.products_rightBlock__bf2x5 > div > div.index_actionContainer__EqFYe > div',
+      // 盲盒页面的按钮
+      '#topBoxContainer > div.index_cardContainer__a7YPF > div > div.index_bottomBtn___D0Qh > button > span',
+      '#topBoxContainer > div.index_cardContainer__a7YPF > div:nth-child(1) > div.index_bottomBtn___D0Qh > button.ant-btn.ant-btn-primary.index_chooseRandomlyBtn__upKXA',
+      '#topBoxContainer > div.index_cardContainer__a7YPF > div:nth-child(1) > div.index_bottomBtn___D0Qh > button.ant-btn.ant-btn-ghost.index_chooseMulitityBtn__n0MoA',
+      // 备用选择器
+      '.index_actionContainer__EqFYe',
+      '.index_chooseRandomlyBtn__upKXA',
+      '.index_chooseMulitityBtn__n0MoA',
+      '.index_bottomBtn___D0Qh button',
+      '.ant-btn.ant-btn-primary',
+      '.ant-btn.ant-btn-ghost'
     ];
 
-    let allButtonTexts: string[] = [];
-    let importantButtons: string[] = [];
-    let cookieButtons: string[] = [];
+    let foundButtons: string[] = [];
+    let foundSelectors: string[] = [];
 
-    for (const selector of buttonSelectors) {
+    // 使用精确选择器检测库存按钮
+    for (const selector of stockButtonSelectors) {
       try {
-        const buttons = await page.$$(selector);
-        for (const button of buttons) {
-          const text = await page.evaluate(el => el.textContent?.trim(), button);
-          const className = await page.evaluate(el => el.className, button);
-          const id = await page.evaluate(el => el.id, button);
+        this.logger.info(`🔍 尝试选择器: ${selector}`);
 
-          if (text && text.length > 0) {
-            const textLower = text.toLowerCase();
+        const elements = await page.$$(selector);
+        if (elements.length > 0) {
+          this.logger.info(`✅ 找到 ${elements.length} 个元素`);
 
-            // 识别Cookie相关按钮并排除
-            if (textLower.includes('accept') ||
-                textLower.includes('cookie') ||
-                textLower.includes('consent') ||
-                textLower.includes('privacy') ||
-                textLower === 'ok' ||
-                textLower.includes('同意') ||
-                textLower.includes('接受') ||
-                className.includes('cookie') ||
-                className.includes('consent') ||
-                id.includes('cookie') ||
-                id.includes('consent')) {
-              cookieButtons.push(text);
-              continue; // 跳过Cookie按钮
-            }
+          for (const element of elements) {
+            // 检查元素是否可见
+            const isVisible = await page.evaluate(el => {
+              const style = window.getComputedStyle(el);
+              const rect = el.getBoundingClientRect();
+              return style.display !== 'none' &&
+                     style.visibility !== 'hidden' &&
+                     rect.width > 0 &&
+                     rect.height > 0;
+            }, element);
 
-            allButtonTexts.push(text);
+            if (isVisible) {
+              const text = await page.evaluate(el => el.textContent?.trim(), element);
+              const tagName = await page.evaluate(el => el.tagName, element);
+              const className = await page.evaluate(el => el.className, element);
 
-            // 重要按钮（包含关键词的）
-            if (textLower.includes('buy') ||
-                textLower.includes('cart') ||
-                textLower.includes('notify') ||
-                textLower.includes('shake') ||
-                textLower.includes('purchase') ||
-                textLower.includes('available') ||
-                textLower.includes('add') ||
-                textLower.includes('order') ||
-                className.includes('chooseRandomlyBtn') ||
-                className.includes('addToCartBtn') ||
-                className.includes('buyNowBtn') ||
-                className.includes('notifyBtn')) {
-              importantButtons.push(text);
+              if (text && text.length > 0) {
+                foundButtons.push(text);
+                foundSelectors.push(selector);
+                this.logger.info(`📝 找到按钮文字: "${text}" (${tagName}, ${className})`);
+              }
             }
           }
         }
       } catch (error) {
-        // 继续尝试下一个选择器
+        this.logger.warn(`⚠️ 选择器失败: ${selector}`, error);
+        continue;
       }
     }
 
-    // 记录发现的按钮
-    if (cookieButtons.length > 0) {
-      this.logger.info(`🍪 排除的Cookie按钮: ${cookieButtons.join(' | ')}`);
+    const buttonText = foundButtons.join(' | ');
+    this.logger.info(`🔍 所有发现的按钮文字: ${buttonText}`);
+    this.logger.info(`🎯 使用的选择器: ${foundSelectors.join(' | ')}`);
+
+    // 如果没有找到任何按钮，尝试通用方法
+    if (foundButtons.length === 0) {
+      this.logger.warn('⚠️ 精确选择器未找到按钮，尝试通用方法...');
+      return await this.fallbackButtonDetection(page);
     }
 
-    // 优先使用重要按钮，如果没有则使用所有按钮（排除Cookie按钮）
-    const relevantButtons = importantButtons.length > 0 ? importantButtons : allButtonTexts;
-    const buttonText = relevantButtons.join(' | ');
+    // 判断库存状态（基于PopMart的实际按钮文字）
+    const buttonTextLower = buttonText.toLowerCase();
 
-    this.logger.info(`🔍 发现的产品按钮文字: ${buttonText}`);
-    this.logger.info(`🎯 重要按钮: ${importantButtons.join(' | ') || '无'}`);
-
-    // 如果没有找到任何相关按钮，可能页面还没完全加载
-    if (relevantButtons.length === 0) {
-      this.logger.warn('⚠️ 未找到任何产品相关按钮，页面可能未完全加载');
-      return { inStock: false, buttonText: '未找到按钮' };
-    }
-
-    // 判断库存状态
+    // PopMart 有货关键词
     const inStockKeywords = [
       'buy now', 'add to cart', 'purchase', 'buy', 'cart',
       'pick one to shake', 'buy multiple boxes', 'order now',
-      'add to bag', 'shop now', 'add to cart'
+      'add to bag', 'shop now', '立即购买', '加入购物车',
+      'choose randomly', 'multiple boxes'
     ];
 
+    // PopMart 缺货关键词
     const outOfStockKeywords = [
       'notify me when available', 'out of stock', 'sold out',
       'in-app purchase only', 'unavailable', 'coming soon',
-      'notify when available', 'notify me'
+      'notify when available', 'notify me', '到货通知', '缺货',
+      'this item is not available in your region', 'not available in your region'
     ];
-
-    const buttonTextLower = buttonText.toLowerCase();
 
     // 检查缺货关键词
     for (const keyword of outOfStockKeywords) {
@@ -580,9 +585,55 @@ export class SimpleSgpmService {
       }
     }
 
-    // 默认判断为缺货（保守策略）
-    this.logger.info('⚠️ 未匹配到明确的库存关键词，采用保守策略判断为缺货');
+    // 如果找到了按钮但没有匹配关键词，记录详细信息
+    this.logger.warn(`⚠️ 找到按钮但未匹配关键词: "${buttonText}"`);
     return { inStock: false, buttonText };
+  }
+
+  /**
+   * 备用按钮检测方法
+   */
+  private async fallbackButtonDetection(page: Page): Promise<{ inStock: boolean; buttonText: string }> {
+    this.logger.info('🔄 使用备用按钮检测方法...');
+
+    try {
+      // 通用按钮选择器
+      const buttons = await page.$$('button, .btn, [role="button"]');
+      const buttonTexts: string[] = [];
+
+      for (const button of buttons) {
+        const text = await page.evaluate(el => el.textContent?.trim(), button);
+        const isVisible = await page.evaluate(el => {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return style.display !== 'none' &&
+                 style.visibility !== 'hidden' &&
+                 rect.width > 0 &&
+                 rect.height > 0;
+        }, button);
+
+        if (isVisible && text && text.length > 0) {
+          const textLower = text.toLowerCase();
+          // 排除Cookie和导航按钮
+          if (!textLower.includes('accept') &&
+              !textLower.includes('cookie') &&
+              !textLower.includes('menu') &&
+              !textLower.includes('search') &&
+              text.length < 50) { // 避免长文本
+            buttonTexts.push(text);
+          }
+        }
+      }
+
+      const allButtonText = buttonTexts.join(' | ');
+      this.logger.info(`🔍 备用方法找到的按钮: ${allButtonText}`);
+
+      return { inStock: false, buttonText: allButtonText || '未找到按钮' };
+
+    } catch (error) {
+      this.logger.error('❌ 备用按钮检测失败:', error);
+      return { inStock: false, buttonText: '检测失败' };
+    }
   }
 
   /**
