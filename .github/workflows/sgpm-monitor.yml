@@ -7,11 +7,9 @@ on:
   push:
     branches: [ main ]  # 推送到主分支时运行（用于测试）
     paths:
-      - 'src/sgpm-main.ts'
-      - 'src/sgpm-optimized-main.ts'  # 添加优化版本
+      - 'src/simple-sgpm-main.ts'  # 简化版本主文件
+      - 'src/services/SimpleSgpmService.ts'  # 简化版本服务
       - 'src/config-sgpm.ts'
-      - 'src/services/SgpmService.ts'
-      - 'src/services/OptimizedSgpmService.ts'  # 添加优化版本
       - '.github/workflows/sgpm-monitor.yml'
 
 env:
