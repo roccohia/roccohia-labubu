@@ -72,45 +72,134 @@ export class SgpmMonitorService {
    */
   private async setupAntiDetection(page: Page): Promise<void> {
     try {
-      logger.info('🛡️ 设置反检测措施...');
+      logger.info('🛡️ 设置增强反检测措施...');
 
-      // 设置用户代理
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      // 设置随机用户代理
+      const userAgents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0'
+      ];
+      const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
+      await page.setUserAgent(randomUA);
 
-      // 设置视口
-      await page.setViewport({ width: 1366, height: 768 });
+      // 设置随机视口
+      const viewports = [
+        { width: 1366, height: 768 },
+        { width: 1920, height: 1080 },
+        { width: 1440, height: 900 },
+        { width: 1280, height: 720 }
+      ];
+      const randomViewport = viewports[Math.floor(Math.random() * viewports.length)];
+      await page.setViewport(randomViewport);
 
-      // 移除webdriver标识
+      // 增强的反检测脚本
       await page.evaluateOnNewDocument(() => {
+        // 移除webdriver标识
         Object.defineProperty(navigator, 'webdriver', {
           get: () => undefined,
         });
 
         // 移除自动化标识
-        delete (window as any).chrome.runtime.onConnect;
+        if ((window as any).chrome && (window as any).chrome.runtime) {
+          delete (window as any).chrome.runtime.onConnect;
+        }
 
         // 模拟真实浏览器属性
         Object.defineProperty(navigator, 'plugins', {
-          get: () => [1, 2, 3, 4, 5],
+          get: () => Array.from({ length: 5 }, (_, i) => ({ name: `Plugin ${i}` })),
         });
 
         Object.defineProperty(navigator, 'languages', {
-          get: () => ['en-US', 'en'],
+          get: () => ['en-US', 'en', 'zh-CN'],
+        });
+
+        // 模拟真实的屏幕属性
+        Object.defineProperty(screen, 'availHeight', {
+          get: () => window.innerHeight,
+        });
+
+        Object.defineProperty(screen, 'availWidth', {
+          get: () => window.innerWidth,
+        });
+
+        // 移除自动化检测
+        try {
+          const originalQuery = window.navigator.permissions.query;
+          (window.navigator.permissions as any).query = (parameters: any) => (
+            parameters.name === 'notifications' ?
+              Promise.resolve({ state: Notification.permission } as any) :
+              originalQuery(parameters)
+          );
+        } catch (e) {
+          // 忽略权限API错误
+        }
+
+        // 模拟真实的时区
+        Object.defineProperty(Intl.DateTimeFormat.prototype, 'resolvedOptions', {
+          value: function() {
+            return { timeZone: 'Asia/Singapore' };
+          }
         });
       });
 
-      // 设置额外的请求头
+      // 设置更真实的请求头
       await page.setExtraHTTPHeaders({
-        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'max-age=0'
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+        'DNT': '1',
+        'Connection': 'keep-alive'
       });
 
-      logger.info('✅ 反检测措施设置完成');
+      logger.info('✅ 增强反检测措施设置完成');
     } catch (error) {
       logger.warn('⚠️ 反检测设置失败:', error);
+    }
+  }
+
+  /**
+   * 建立会话 - 先访问主页
+   */
+  private async establishSession(page: Page): Promise<void> {
+    try {
+      logger.info('🏠 建立会话：先访问主页...');
+
+      // 访问主页
+      await page.goto('https://www.popmart.com/sg', {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
+      });
+
+      // 模拟人类行为：随机等待
+      const randomWait = 2000 + Math.random() * 3000;
+      await this.delay(randomWait);
+
+      // 模拟鼠标移动
+      await page.mouse.move(100, 100);
+      await this.delay(500);
+      await page.mouse.move(200, 200);
+
+      // 滚动页面
+      await page.evaluate(() => {
+        window.scrollTo(0, 300);
+      });
+      await this.delay(1000);
+
+      // 处理主页的Cookie和弹窗
+      await this.handleLocationModal(page);
+      await this.handleCookieAccept(page);
+
+      logger.info('✅ 会话建立完成');
+    } catch (error) {
+      logger.warn('⚠️ 会话建立失败，继续直接访问:', error);
     }
   }
 
@@ -152,12 +241,33 @@ export class SgpmMonitorService {
       if (errorMessages.length > 0) {
         logger.warn(`⚠️ 检测到错误关键词: ${errorMessages.join(', ')}`);
 
-        // 如果检测到WAF或访问被拒绝，尝试重新加载
+        // 如果检测到WAF或访问被拒绝，尝试多种恢复策略
         if (errorMessages.some(msg => ['access denied', 'waf', 'blocked', 'security'].includes(msg))) {
-          logger.warn('🚫 检测到WAF拦截，尝试重新加载...');
-          await this.delay(5000);
+          logger.warn('🚫 检测到WAF拦截，尝试恢复策略...');
+
+          // 策略1：等待并重新加载
+          await this.delay(8000 + Math.random() * 5000);
           await page.reload({ waitUntil: 'domcontentloaded' });
           await this.delay(5000);
+
+          // 策略2：如果还是失败，尝试重新访问主页
+          const stillBlocked = await page.evaluate(() => {
+            const bodyText = document.body.textContent?.toLowerCase() || '';
+            return bodyText.includes('access denied') || bodyText.includes('waf');
+          });
+
+          if (stillBlocked) {
+            logger.warn('🔄 重新建立会话...');
+            await this.establishSession(page);
+
+            // 重新访问目标页面
+            const currentUrl = page.url();
+            if (!currentUrl.includes('/products/')) {
+              logger.warn('🔄 重新访问产品页面...');
+              await page.goto(currentUrl, { waitUntil: 'domcontentloaded' });
+              await this.delay(5000);
+            }
+          }
         }
       }
 
@@ -568,6 +678,9 @@ export class SgpmMonitorService {
     try {
       // 设置反检测措施
       await this.setupAntiDetection(page);
+
+      // 分步骤访问策略：先访问主页建立会话
+      await this.establishSession(page);
 
       logger.info(`🌐 访问产品页面: ${url}`);
 
