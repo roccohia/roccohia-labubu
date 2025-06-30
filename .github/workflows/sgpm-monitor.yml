@@ -7,8 +7,8 @@ on:
   push:
     branches: [ main ]  # 推送到主分支时运行（用于测试）
     paths:
-      - 'src/simple-sgpm-main.ts'  # 简化版本主文件
-      - 'src/services/SimpleSgpmService.ts'  # 简化版本服务
+      - 'src/sgpm-monitor-main.ts'  # 新版本主文件
+      - 'src/services/SgpmMonitorService.ts'  # 新版本服务
       - 'src/config-sgpm.ts'
       - '.github/workflows/sgpm-monitor.yml'
 
@@ -60,11 +60,11 @@ jobs:
         run: |
           echo "📋 状态文件: $([ -f 'sgpm-products-status.json' ] && echo '✅ 存在' || echo '❌ 不存在')"
 
-      - name: Run SGPM monitoring (Simple Version)
+      - name: Run SGPM monitoring
         run: |
-          echo "🚀 启动简化SGPM监控..."
-          npx ts-node src/simple-sgpm-main.ts 2>&1 | tee sgpm-monitoring.log
-        timeout-minutes: 8  # 进一步优化超时时间
+          echo "🚀 启动SGPM监控..."
+          npm run sgpm:monitor 2>&1 | tee sgpm-monitoring.log
+        timeout-minutes: 10
 
       - name: Check results
         if: always()

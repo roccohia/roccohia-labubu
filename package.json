@@ -11,7 +11,7 @@
     "sgpm": "npx ts-node src/sgpm-optimized-main.ts",
     "sgpm:dev": "npx ts-node src/sgpm-optimized-main.ts --debug",
     "sgpm:optimized": "node --expose-gc --max-old-space-size=1024 -r ts-node/register src/sgpm-optimized-main.ts",
-    "sgpm:simple": "npx ts-node src/simple-sgpm-main.ts",
+    "sgpm:monitor": "npx ts-node src/sgpm-monitor-main.ts",
     "optimized": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts",
     "optimized:xhs": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts --xhs-only",
     "optimized:debug": "node --expose-gc --max-old-space-size=2048 -r ts-node/register src/optimized-main.ts --debug",
