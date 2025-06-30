@@ -117,16 +117,31 @@ export class SimpleSgpmService {
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
       
       // 导航到页面
-      await page.goto(url, { 
-        waitUntil: 'domcontentloaded', 
-        timeout: 30000 
+      await page.goto(url, {
+        waitUntil: 'networkidle2',
+        timeout: 30000
       });
-      
-      // 等待页面加载
+
+      // 等待页面初始加载
       await this.delay(3000);
-      
+
       // 处理Cookie同意按钮
       await this.handleCookieConsent(page);
+
+      // Cookie处理后，等待页面重新稳定
+      await this.delay(5000);
+
+      // 检查当前URL是否与目标URL一致
+      const currentUrl = page.url();
+      if (currentUrl !== url) {
+        this.logger.warn(`⚠️ 页面URL发生变化: ${url} → ${currentUrl}`);
+        // 如果URL变化，尝试重新导航到目标URL
+        await page.goto(url, {
+          waitUntil: 'networkidle2',
+          timeout: 30000
+        });
+        await this.delay(3000);
+      }
       
       // 提取产品信息
       const productInfo = await this.extractProductInfo(page);
@@ -143,33 +158,118 @@ export class SimpleSgpmService {
    */
   private async handleCookieConsent(page: Page): Promise<void> {
     try {
-      // 常见的Cookie按钮选择器
+      this.logger.info('🍪 开始处理Cookie同意按钮...');
+
+      // 等待页面稳定
+      await this.delay(2000);
+
+      // PopMart 特定的Cookie按钮选择器（优先使用）
+      const popMartCookieSelector = '#__next > div > div > div.policy_aboveFixedContainer__KfeZi > div > div.policy_acceptBtn__ZNU71';
+
+      // 备用Cookie按钮选择器
       const cookieSelectors = [
+        // PopMart 特定选择器（最高优先级）
+        popMartCookieSelector,
+        '.policy_acceptBtn__ZNU71',
+        '[class*="policy_acceptBtn"]',
+        '[class*="acceptBtn"]',
+        // 通用Cookie按钮
         'button[id*="accept"]',
         'button[class*="accept"]',
-        'button:contains("Accept")',
-        'button:contains("同意")',
-        'button:contains("OK")',
+        'button[id*="cookie"]',
+        'button[class*="cookie"]',
+        'button[id*="consent"]',
+        'button[class*="consent"]',
+        // 数据属性
         '[data-testid*="accept"]',
+        '[data-testid*="cookie"]',
+        // 容器内的按钮
         '.cookie-banner button',
-        '#cookie-banner button'
+        '.cookie-notice button',
+        '.consent-banner button',
+        '#cookie-banner button',
+        '#cookie-notice button',
+        '#consent-banner button'
       ];
 
-      for (const selector of cookieSelectors) {
-        try {
-          const button = await page.$(selector);
-          if (button) {
-            await button.click();
-            this.logger.info('🍪 Cookie同意按钮已点击');
-            await this.delay(1000);
-            break;
+      let cookieHandled = false;
+
+      // 首先尝试等待PopMart特定的Cookie按钮出现
+      try {
+        this.logger.info('🍪 等待PopMart Cookie按钮出现...');
+        await page.waitForSelector(popMartCookieSelector, { timeout: 5000 });
+
+        const popMartButton = await page.$(popMartCookieSelector);
+        if (popMartButton) {
+          const isVisible = await page.evaluate(el => {
+            const style = window.getComputedStyle(el);
+            return style.display !== 'none' &&
+                   style.visibility !== 'hidden' &&
+                   (el as HTMLElement).offsetParent !== null;
+          }, popMartButton);
+
+          if (isVisible) {
+            const text = await page.evaluate(el => el.textContent?.trim(), popMartButton);
+            this.logger.info(`🍪 找到PopMart Cookie按钮: "${text}"`);
+            await popMartButton.click();
+            cookieHandled = true;
+            this.logger.info(`✅ 成功点击PopMart Cookie按钮`);
           }
-        } catch (error) {
-          // 忽略单个选择器的错误
+        }
+      } catch (error) {
+        this.logger.info('🍪 PopMart特定Cookie按钮未找到，尝试其他选择器...');
+      }
+
+      // 如果PopMart特定按钮没有找到，尝试其他选择器
+      if (!cookieHandled) {
+        for (const selector of cookieSelectors.slice(1)) { // 跳过第一个（已经尝试过）
+          try {
+            const button = await page.$(selector);
+            if (button) {
+              const isVisible = await page.evaluate(el => {
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' &&
+                       style.visibility !== 'hidden' &&
+                       (el as HTMLElement).offsetParent !== null;
+              }, button);
+
+              if (isVisible) {
+                const text = await page.evaluate(el => el.textContent?.trim(), button);
+                this.logger.info(`🍪 找到Cookie按钮: ${selector} - "${text}"`);
+                await button.click();
+                cookieHandled = true;
+                this.logger.info(`✅ 成功点击Cookie按钮: ${selector}`);
+                break;
+              }
+            }
+          } catch (error) {
+            // 忽略单个选择器的错误，继续尝试下一个
+            continue;
+          }
         }
       }
+
+      if (cookieHandled) {
+        // Cookie处理成功，等待页面重新加载
+        this.logger.info('🔄 Cookie处理成功，等待页面重新加载...');
+
+        // 等待页面开始重新加载
+        await this.delay(2000);
+
+        // 等待页面完全稳定
+        await this.delay(5000);
+
+        // 额外等待确保动态内容加载
+        await this.delay(3000);
+
+        this.logger.info('✅ 页面重新加载完成');
+      } else {
+        this.logger.info('ℹ️ 未找到Cookie同意按钮，可能页面不需要处理');
+      }
+
     } catch (error) {
-      this.logger.warn('⚠️ Cookie处理失败:', error);
+      this.logger.warn('⚠️ Cookie处理过程中出现错误:', error);
+      // 不抛出错误，继续执行后续逻辑
     }
   }
 
@@ -182,18 +282,45 @@ export class SimpleSgpmService {
     inStock: boolean;
     buttonText: string;
   }> {
-    // 等待页面稳定
-    await this.delay(2000);
+    this.logger.info('📊 开始提取产品信息...');
+
+    // 等待页面完全稳定
+    await this.delay(3000);
+
+    // 检查页面是否正确加载（不是Cookie页面）
+    const pageContent = await page.content();
+    if (pageContent.length < 5000) {
+      this.logger.warn('⚠️ 页面内容较少，可能未完全加载');
+    }
+
+    // 检查是否还有Cookie弹窗
+    const hasCookieModal = await page.evaluate(() => {
+      const cookieKeywords = ['cookie', 'consent', 'privacy', 'accept'];
+      const modals = document.querySelectorAll('[role="dialog"], .modal, .popup, .overlay');
+      for (const modal of modals) {
+        const text = modal.textContent?.toLowerCase() || '';
+        if (cookieKeywords.some(keyword => text.includes(keyword))) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (hasCookieModal) {
+      this.logger.warn('⚠️ 检测到Cookie弹窗仍然存在，尝试再次处理...');
+      await this.handleCookieConsent(page);
+    }
 
     // 提取产品标题
     const title = await this.extractTitle(page);
-    
+
     // 提取价格
     const price = await this.extractPrice(page);
-    
-    // 提取按钮文字并判断库存状态
+
+    // 提取按钮文字并判断库存状态（排除Cookie按钮）
     const { inStock, buttonText } = await this.extractStockStatus(page);
 
+    this.logger.info(`📊 产品信息提取完成: ${title} | ${price || '无价格'} | ${inStock ? '有货' : '缺货'}`);
     return { title, price, inStock, buttonText };
   }
 
@@ -320,11 +447,13 @@ export class SimpleSgpmService {
   }
 
   /**
-   * 提取库存状态（基于按钮文字）
+   * 提取库存状态（基于按钮文字，排除Cookie按钮）
    */
   private async extractStockStatus(page: Page): Promise<{ inStock: boolean; buttonText: string }> {
+    this.logger.info('🔍 开始提取库存状态...');
+
     // 等待页面完全加载
-    await this.delay(3000);
+    await this.delay(2000);
 
     // 更具体的PopMart按钮选择器
     const buttonSelectors = [
@@ -349,6 +478,7 @@ export class SimpleSgpmService {
 
     let allButtonTexts: string[] = [];
     let importantButtons: string[] = [];
+    let cookieButtons: string[] = [];
 
     for (const selector of buttonSelectors) {
       try {
@@ -356,18 +486,38 @@ export class SimpleSgpmService {
         for (const button of buttons) {
           const text = await page.evaluate(el => el.textContent?.trim(), button);
           const className = await page.evaluate(el => el.className, button);
+          const id = await page.evaluate(el => el.id, button);
 
           if (text && text.length > 0) {
+            const textLower = text.toLowerCase();
+
+            // 识别Cookie相关按钮并排除
+            if (textLower.includes('accept') ||
+                textLower.includes('cookie') ||
+                textLower.includes('consent') ||
+                textLower.includes('privacy') ||
+                textLower === 'ok' ||
+                textLower.includes('同意') ||
+                textLower.includes('接受') ||
+                className.includes('cookie') ||
+                className.includes('consent') ||
+                id.includes('cookie') ||
+                id.includes('consent')) {
+              cookieButtons.push(text);
+              continue; // 跳过Cookie按钮
+            }
+
             allButtonTexts.push(text);
 
             // 重要按钮（包含关键词的）
-            const textLower = text.toLowerCase();
             if (textLower.includes('buy') ||
                 textLower.includes('cart') ||
                 textLower.includes('notify') ||
                 textLower.includes('shake') ||
                 textLower.includes('purchase') ||
                 textLower.includes('available') ||
+                textLower.includes('add') ||
+                textLower.includes('order') ||
                 className.includes('chooseRandomlyBtn') ||
                 className.includes('addToCartBtn') ||
                 className.includes('buyNowBtn') ||
@@ -381,18 +531,29 @@ export class SimpleSgpmService {
       }
     }
 
-    // 优先使用重要按钮，如果没有则使用所有按钮
+    // 记录发现的按钮
+    if (cookieButtons.length > 0) {
+      this.logger.info(`🍪 排除的Cookie按钮: ${cookieButtons.join(' | ')}`);
+    }
+
+    // 优先使用重要按钮，如果没有则使用所有按钮（排除Cookie按钮）
     const relevantButtons = importantButtons.length > 0 ? importantButtons : allButtonTexts;
     const buttonText = relevantButtons.join(' | ');
 
-    this.logger.info(`🔍 发现的按钮文字: ${buttonText}`);
+    this.logger.info(`🔍 发现的产品按钮文字: ${buttonText}`);
     this.logger.info(`🎯 重要按钮: ${importantButtons.join(' | ') || '无'}`);
+
+    // 如果没有找到任何相关按钮，可能页面还没完全加载
+    if (relevantButtons.length === 0) {
+      this.logger.warn('⚠️ 未找到任何产品相关按钮，页面可能未完全加载');
+      return { inStock: false, buttonText: '未找到按钮' };
+    }
 
     // 判断库存状态
     const inStockKeywords = [
       'buy now', 'add to cart', 'purchase', 'buy', 'cart',
       'pick one to shake', 'buy multiple boxes', 'order now',
-      'add to bag', 'shop now'
+      'add to bag', 'shop now', 'add to cart'
     ];
 
     const outOfStockKeywords = [
@@ -406,6 +567,7 @@ export class SimpleSgpmService {
     // 检查缺货关键词
     for (const keyword of outOfStockKeywords) {
       if (buttonTextLower.includes(keyword)) {
+        this.logger.info(`✅ 检测到缺货关键词: "${keyword}"`);
         return { inStock: false, buttonText };
       }
     }
@@ -413,11 +575,13 @@ export class SimpleSgpmService {
     // 检查有货关键词
     for (const keyword of inStockKeywords) {
       if (buttonTextLower.includes(keyword)) {
+        this.logger.info(`✅ 检测到有货关键词: "${keyword}"`);
         return { inStock: true, buttonText };
       }
     }
 
     // 默认判断为缺货（保守策略）
+    this.logger.info('⚠️ 未匹配到明确的库存关键词，采用保守策略判断为缺货');
     return { inStock: false, buttonText };
   }
 
