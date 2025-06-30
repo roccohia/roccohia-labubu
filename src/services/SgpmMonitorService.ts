@@ -24,7 +24,7 @@ export class SgpmMonitorService {
   async initBrowser(): Promise<void> {
     try {
       logger.info('🚀 启动浏览器...');
-      
+
       this.browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -34,10 +34,14 @@ export class SgpmMonitorService {
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
-          '--disable-gpu'
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor',
+          '--disable-blink-features=AutomationControlled',
+          '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ]
       });
-      
+
       logger.info('✅ 浏览器启动成功');
     } catch (error) {
       logger.error('❌ 浏览器启动失败:', error);
@@ -61,6 +65,53 @@ export class SgpmMonitorService {
    */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 设置反检测措施
+   */
+  private async setupAntiDetection(page: Page): Promise<void> {
+    try {
+      logger.info('🛡️ 设置反检测措施...');
+
+      // 设置用户代理
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+      // 设置视口
+      await page.setViewport({ width: 1366, height: 768 });
+
+      // 移除webdriver标识
+      await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => undefined,
+        });
+
+        // 移除自动化标识
+        delete (window as any).chrome.runtime.onConnect;
+
+        // 模拟真实浏览器属性
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [1, 2, 3, 4, 5],
+        });
+
+        Object.defineProperty(navigator, 'languages', {
+          get: () => ['en-US', 'en'],
+        });
+      });
+
+      // 设置额外的请求头
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0'
+      });
+
+      logger.info('✅ 反检测措施设置完成');
+    } catch (error) {
+      logger.warn('⚠️ 反检测设置失败:', error);
+    }
   }
 
   /**
@@ -91,15 +142,23 @@ export class SgpmMonitorService {
         }
       }
 
-      // 检查是否有错误信息
+      // 检查是否有错误信息或WAF拦截
       const errorMessages = await page.evaluate(() => {
-        const errorKeywords = ['error', '404', '500', 'not found', 'access denied'];
+        const errorKeywords = ['error', '404', '500', 'not found', 'access denied', 'waf', 'blocked', 'security'];
         const bodyText = document.body.textContent?.toLowerCase() || '';
         return errorKeywords.filter(keyword => bodyText.includes(keyword));
       });
 
       if (errorMessages.length > 0) {
         logger.warn(`⚠️ 检测到错误关键词: ${errorMessages.join(', ')}`);
+
+        // 如果检测到WAF或访问被拒绝，尝试重新加载
+        if (errorMessages.some(msg => ['access denied', 'waf', 'blocked', 'security'].includes(msg))) {
+          logger.warn('🚫 检测到WAF拦截，尝试重新加载...');
+          await this.delay(5000);
+          await page.reload({ waitUntil: 'domcontentloaded' });
+          await this.delay(5000);
+        }
       }
 
     } catch (error) {
@@ -135,6 +194,45 @@ export class SgpmMonitorService {
       logger.info('✅ 页面滚动完成');
     } catch (error) {
       logger.warn('⚠️ 页面滚动失败:', error);
+    }
+  }
+
+  /**
+   * 处理地区弹窗
+   */
+  private async handleLocationModal(page: Page): Promise<void> {
+    try {
+      logger.info('🌍 检查地区弹窗...');
+
+      // 检查是否有地区弹窗
+      const locationModalSelectors = [
+        '.layout_wafErrorModalButton__yJdyc',
+        'button:contains("OK")',
+        '[class*="modal"] button',
+        '[class*="Modal"] button'
+      ];
+
+      for (const selector of locationModalSelectors) {
+        try {
+          const button = await page.$(selector);
+          if (button) {
+            const text = await page.evaluate(el => el.textContent?.trim(), button);
+            if (text && text.toLowerCase().includes('ok')) {
+              logger.info(`🌍 找到地区弹窗按钮: "${text}"`);
+              await button.click();
+              logger.info('✅ 地区弹窗已处理');
+              await this.delay(3000);
+              return;
+            }
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+
+      logger.info('ℹ️ 未发现地区弹窗');
+    } catch (error) {
+      logger.warn('⚠️ 地区弹窗处理失败:', error);
     }
   }
 
@@ -466,17 +564,23 @@ export class SgpmMonitorService {
     }
 
     const page = await this.browser.newPage();
-    
+
     try {
-      // 设置用户代理
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-      
+      // 设置反检测措施
+      await this.setupAntiDetection(page);
+
       logger.info(`🌐 访问产品页面: ${url}`);
-      
+
       // 导航到页面
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      
-      // 第一件事：处理Cookie Accept按钮
+
+      // 等待初始加载
+      await this.delay(3000);
+
+      // 第一步：处理地区弹窗
+      await this.handleLocationModal(page);
+
+      // 第二步：处理Cookie Accept按钮
       await this.handleCookieAccept(page);
 
       // 滚动页面确保所有内容加载
