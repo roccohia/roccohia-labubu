@@ -64,6 +64,50 @@ export class SgpmMonitorService {
   }
 
   /**
+   * CI环境页面健康检查
+   */
+  private async performCIHealthCheck(page: Page): Promise<void> {
+    try {
+      logger.info('🔍 CI环境页面健康检查...');
+
+      const url = page.url();
+      const title = await page.title();
+      const bodyLength = await page.evaluate(() => document.body.textContent?.length || 0);
+
+      logger.info(`🔍 健康检查 - URL: ${url}`);
+      logger.info(`🔍 健康检查 - 标题: ${title}`);
+      logger.info(`🔍 健康检查 - 页面内容长度: ${bodyLength} 字符`);
+
+      // 检查是否是错误页面
+      if (bodyLength < 1000) {
+        logger.warn('⚠️ 页面内容过少，可能加载失败');
+
+        // 尝试截图（如果可能）
+        try {
+          await page.screenshot({ path: 'debug-screenshot.png', fullPage: true });
+          logger.info('📸 已保存调试截图: debug-screenshot.png');
+        } catch (screenshotError) {
+          logger.warn('⚠️ 截图失败');
+        }
+      }
+
+      // 检查是否有错误信息
+      const errorMessages = await page.evaluate(() => {
+        const errorKeywords = ['error', '404', '500', 'not found', 'access denied'];
+        const bodyText = document.body.textContent?.toLowerCase() || '';
+        return errorKeywords.filter(keyword => bodyText.includes(keyword));
+      });
+
+      if (errorMessages.length > 0) {
+        logger.warn(`⚠️ 检测到错误关键词: ${errorMessages.join(', ')}`);
+      }
+
+    } catch (error) {
+      logger.warn('⚠️ CI健康检查失败:', error);
+    }
+  }
+
+  /**
    * 滚动页面确保所有内容加载
    */
   private async scrollPageToLoadContent(page: Page): Promise<void> {
@@ -101,24 +145,32 @@ export class SgpmMonitorService {
     try {
       logger.info('🍪 第一步：查找并点击Accept按钮...');
 
+      // 检测是否在CI环境
+      const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+      if (isCI) {
+        logger.info('🔍 检测到CI环境，使用增强等待策略');
+      }
+
       // PopMart精确的Cookie Accept按钮选择器
       const cookieSelector = '#__next > div > div > div.policy_aboveFixedContainer__KfeZi > div > div.policy_acceptBtn__ZNU71';
 
       // 等待按钮出现
-      await page.waitForSelector(cookieSelector, { timeout: 5000 });
+      await page.waitForSelector(cookieSelector, { timeout: 10000 });
 
       // 点击Accept按钮
       await page.click(cookieSelector);
       logger.info('✅ Accept按钮点击成功');
 
-      // 等待页面重新加载并稳定
-      await this.delay(8000);
+      // CI环境需要更长的等待时间
+      const waitTime = isCI ? 15000 : 8000;
+      await this.delay(waitTime);
       logger.info('✅ 页面重新加载完成');
 
     } catch (error) {
       logger.warn('⚠️ Accept按钮未找到或已处理');
       // 即使没有Cookie按钮，也要等待页面稳定
-      await this.delay(3000);
+      const waitTime = process.env.CI === 'true' ? 8000 : 3000;
+      await this.delay(waitTime);
     }
   }
 
@@ -130,6 +182,18 @@ export class SgpmMonitorService {
 
     // 等待页面完全稳定
     await this.delay(5000);
+
+    // 调试：输出页面基本信息
+    try {
+      const url = page.url();
+      const title = await page.title();
+      const bodyText = await page.evaluate(() => document.body.textContent?.substring(0, 500) || '');
+      logger.info(`🔍 调试信息 - URL: ${url}`);
+      logger.info(`🔍 调试信息 - 页面标题: ${title}`);
+      logger.info(`🔍 调试信息 - 页面内容前500字符: ${bodyText}`);
+    } catch (error) {
+      logger.warn('⚠️ 调试信息获取失败');
+    }
 
     // 用户提供的精确库存按钮选择器
     const stockSelectors = [
@@ -176,6 +240,23 @@ export class SgpmMonitorService {
     }
 
     if (!buttonText) {
+      // 调试：输出页面中所有按钮
+      try {
+        logger.info('🔍 调试：查找页面中所有按钮...');
+        const allButtons = await page.$$('button, .btn, [role="button"], .ant-btn, input[type="button"], input[type="submit"]');
+        logger.info(`🔍 调试：找到 ${allButtons.length} 个按钮元素`);
+
+        for (let i = 0; i < Math.min(allButtons.length, 10); i++) {
+          const button = allButtons[i];
+          const text = await page.evaluate(el => el.textContent?.trim(), button);
+          const className = await page.evaluate(el => el.className, button);
+          const id = await page.evaluate(el => el.id, button);
+          logger.info(`🔍 调试按钮 ${i + 1}: "${text}" (class: ${className}, id: ${id})`);
+        }
+      } catch (error) {
+        logger.warn('⚠️ 按钮调试失败');
+      }
+
       // 尝试通用按钮检测
       logger.warn('⚠️ 精确选择器未找到，尝试通用检测...');
       return await this.fallbackButtonDetection(page);
@@ -283,6 +364,23 @@ export class SgpmMonitorService {
   private async extractProductInfo(page: Page): Promise<ProductInfo> {
     logger.info('📊 开始提取产品信息...');
 
+    // 调试：输出页面HTML结构
+    try {
+      const htmlStructure = await page.evaluate(() => {
+        const elements = document.querySelectorAll('h1, h2, h3, .price, [class*="price"], [class*="title"], [class*="product"]');
+        const structure: string[] = [];
+        elements.forEach((el, index) => {
+          if (index < 20) { // 限制输出数量
+            structure.push(`${el.tagName}.${el.className}: "${el.textContent?.trim().substring(0, 50)}"`);
+          }
+        });
+        return structure;
+      });
+      logger.info(`🔍 调试：页面结构 - ${htmlStructure.join(' | ')}`);
+    } catch (error) {
+      logger.warn('⚠️ 页面结构调试失败');
+    }
+
     // 提取标题
     let title = 'Unknown Product';
     const titleSelectors = [
@@ -385,7 +483,14 @@ export class SgpmMonitorService {
       await this.scrollPageToLoadContent(page);
 
       // 等待页面稳定
-      await this.delay(8000);
+      const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+      const waitTime = isCI ? 15000 : 8000;
+      await this.delay(waitTime);
+
+      // CI环境下进行页面健康检查
+      if (isCI) {
+        await this.performCIHealthCheck(page);
+      }
 
       // 提取产品信息
       const productInfo = await this.extractProductInfo(page);
