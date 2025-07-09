@@ -178,20 +178,20 @@ export class SgpmMonitorService {
         timeout: 30000
       });
 
-      // 模拟人类行为：随机等待
-      const randomWait = 2000 + Math.random() * 3000;
+      // 模拟人类行为：优化等待时间
+      const randomWait = 1000 + Math.random() * 2000; // 减少随机等待时间
       await this.delay(randomWait);
 
       // 模拟鼠标移动
       await page.mouse.move(100, 100);
-      await this.delay(500);
+      await this.delay(200); // 减少等待时间
       await page.mouse.move(200, 200);
 
       // 滚动页面
       await page.evaluate(() => {
         window.scrollTo(0, 300);
       });
-      await this.delay(1000);
+      await this.delay(500); // 减少等待时间
 
       // 处理主页的Cookie和弹窗
       await this.handleLocationModal(page);
@@ -287,19 +287,19 @@ export class SgpmMonitorService {
       await page.evaluate(() => {
         window.scrollTo(0, document.body.scrollHeight);
       });
-      await this.delay(2000);
+      await this.delay(1000); // 减少等待时间
 
       // 滚动回顶部
       await page.evaluate(() => {
         window.scrollTo(0, 0);
       });
-      await this.delay(1000);
+      await this.delay(500); // 减少等待时间
 
       // 滚动到中间位置
       await page.evaluate(() => {
         window.scrollTo(0, document.body.scrollHeight / 2);
       });
-      await this.delay(1000);
+      await this.delay(500); // 减少等待时间
 
       logger.info('✅ 页面滚动完成');
     } catch (error) {
@@ -369,8 +369,8 @@ export class SgpmMonitorService {
       await page.click(cookieSelector);
       logger.info('✅ Accept按钮点击成功');
 
-      // CI环境需要更长的等待时间
-      const waitTime = isCI ? 15000 : 8000;
+      // CI环境需要更长的等待时间（优化）
+      const waitTime = isCI ? 10000 : 6000; // 减少等待时间
       await this.delay(waitTime);
       logger.info('✅ 页面重新加载完成');
 
@@ -388,8 +388,8 @@ export class SgpmMonitorService {
   private async detectStockStatus(page: Page): Promise<{ inStock: boolean; buttonText: string }> {
     logger.info('🔍 开始检测库存状态...');
 
-    // 等待页面完全稳定
-    await this.delay(5000);
+    // 等待页面完全稳定（优化）
+    await this.delay(3000); // 减少等待时间
 
     // 调试：输出页面基本信息
     try {
@@ -668,7 +668,7 @@ export class SgpmMonitorService {
   /**
    * 检查单个产品
    */
-  async checkProduct(url: string): Promise<ProductInfo> {
+  async checkProduct(url: string): Promise<ProductInfo & { url: string }> {
     if (!this.browser) {
       throw new Error('浏览器未初始化');
     }
@@ -699,9 +699,9 @@ export class SgpmMonitorService {
       // 滚动页面确保所有内容加载
       await this.scrollPageToLoadContent(page);
 
-      // 等待页面稳定
+      // 等待页面稳定（优化等待时间）
       const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
-      const waitTime = isCI ? 15000 : 8000;
+      const waitTime = isCI ? 8000 : 5000; // 减少等待时间
       await this.delay(waitTime);
 
       // CI环境下进行页面健康检查
@@ -713,8 +713,8 @@ export class SgpmMonitorService {
       const productInfo = await this.extractProductInfo(page);
       
       logger.info(`📊 ${productInfo.title}: ${productInfo.inStock ? '✅ 有货' : '❌ 缺货'} | 价格: ${productInfo.price || '未知'}`);
-      
-      return productInfo;
+
+      return { ...productInfo, url };
       
     } finally {
       await page.close();
@@ -724,20 +724,22 @@ export class SgpmMonitorService {
   /**
    * 发送Telegram通知
    */
-  async sendTelegramNotification(product: ProductInfo): Promise<void> {
+  async sendTelegramNotification(product: ProductInfo & { url: string }): Promise<void> {
     if (!this.botToken || !this.chatId) {
       logger.warn('⚠️ Telegram未配置，跳过通知');
       return;
     }
 
-    const message = `🎉 商品有货提醒！
+    // 优化的Telegram消息格式
+    const message = `🎉 <b>PopMart 有货提醒！</b>
 
-📦 商品: ${product.title}
-💰 价格: ${product.price || '未知'}
-🔘 状态: ${product.buttonText}
-⏰ 时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
+📦 <b>商品名称:</b> ${product.title}
+💰 <b>价格:</b> <code>${product.price || '未知'}</code>
+📊 <b>库存状态:</b> <i>${product.buttonText}</i>
+🔗 <b>商品链接:</b> <a href="${product.url}">立即购买</a>
+⏰ <b>检测时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
 
-快去抢购吧！`;
+🚀 <b>快去抢购吧！</b>`;
 
     try {
       const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
@@ -746,7 +748,8 @@ export class SgpmMonitorService {
         body: JSON.stringify({
           chat_id: this.chatId,
           text: message,
-          parse_mode: 'HTML'
+          parse_mode: 'HTML',
+          disable_web_page_preview: false
         })
       });
 
@@ -761,33 +764,37 @@ export class SgpmMonitorService {
   }
 
   /**
-   * 监控多个产品
+   * 监控多个产品（优化版本）
    */
   async monitorProducts(urls: string[]): Promise<void> {
-    logger.info(`📊 开始监控 ${urls.length} 个产品`);
-    
+    logger.info(`📊 开始高效监控 ${urls.length} 个产品`);
+
     for (let i = 0; i < urls.length; i++) {
       const url = urls[i];
       logger.info(`📦 检查产品 ${i + 1}/${urls.length}: ${url}`);
-      
+
       try {
         const productInfo = await this.checkProduct(url);
-        
+
         // 如果有货，发送通知
         if (productInfo.inStock) {
           await this.sendTelegramNotification(productInfo);
         }
-        
-        // 产品间延迟
+
+        // 优化：减少产品间延迟
         if (i < urls.length - 1) {
-          await this.delay(2000);
+          await this.delay(1000); // 从2秒减少到1秒
         }
-        
+
       } catch (error) {
         logger.error(`❌ 检查产品失败 ${url}:`, error);
+        // 错误时也要短暂延迟，避免过快重试
+        if (i < urls.length - 1) {
+          await this.delay(500);
+        }
       }
     }
-    
-    logger.info('✅ 监控完成');
+
+    logger.info('✅ 高效监控完成');
   }
 }
