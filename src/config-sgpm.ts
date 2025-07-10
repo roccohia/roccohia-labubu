@@ -7,11 +7,11 @@ import { SgpmConfig } from './types';
 export const sgpmConfig: SgpmConfig = {
   productUrls: [
     'https://www.popmart.com/sg/pop-now/set/64',
-    'https://www.popmart.com/sg/products/3877/THE-MONSTERS-Wacky-Mart-Series-Earphone-Case',
-    'https://www.popmart.com/sg/products/1149/LABUBU-HIDE-AND-SEEK-IN-SINGAPORE-SERIES-Vinyl-Plush-Doll-Pendant',
-    'https://www.popmart.com/sg/products/1712/THE-MONSTERS-COCA-COLA-SERIES-Vinyl-Face-Blind-Box',
-    'https://www.popmart.com/sg/products/1898/THE-MONSTERS-FALL-IN-WILD-SERIES-Vinyl-Plush-Doll-Pendant',
-    'https://www.popmart.com/sg/products/1715/THE-MONSTERS-FALL-IN-WILD-SERIES-Vinyl-Plush-Doll'
+    'https://www.popmart.com/sg/products/5629/THE%20MONSTERS%20Wacky%20Mart%20Series-Earphone%20Case',
+    'https://www.popmart.com/sg/products/5628/LABUBU%20HIDE%20AND%20SEEK%20IN%20SINGAPORE%20SERIES-Vinyl%20Plush%20Doll%20Pendant',
+    'https://www.popmart.com/sg/products/5627/THE%20MONSTERS%20COCA%20COLA%20SERIES-Vinyl%20Face%20Blind%20Box',
+    'https://www.popmart.com/sg/products/5626/THE%20MONSTERS%20FALL%20IN%20WILD%20SERIES-Vinyl%20Plush%20Doll%20Pendant',
+    'https://www.popmart.com/sg/products/5625/THE%20MONSTERS%20FALL%20IN%20WILD%20SERIES-Vinyl%20Plush%20Doll'
   ],
   statusFile: './sgpm-products-status.json',
   maxRetries: 3,

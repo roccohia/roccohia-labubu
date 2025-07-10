@@ -5,16 +5,14 @@ import { logger } from './utils/logger';
 // 加载环境变量
 dotenv.config();
 
-// SGPM产品URL列表
+// SGPM产品URL列表 (已优化为6个产品)
 const SGPM_PRODUCT_URLS = [
-  'https://www.popmart.com/sg/products/5631/Hirono%20Living%20Wild-Fight%20for%20Joy%20Plush%20Doll',
   'https://www.popmart.com/sg/pop-now/set/64',
   'https://www.popmart.com/sg/products/5629/THE%20MONSTERS%20Wacky%20Mart%20Series-Earphone%20Case',
   'https://www.popmart.com/sg/products/5628/LABUBU%20HIDE%20AND%20SEEK%20IN%20SINGAPORE%20SERIES-Vinyl%20Plush%20Doll%20Pendant',
   'https://www.popmart.com/sg/products/5627/THE%20MONSTERS%20COCA%20COLA%20SERIES-Vinyl%20Face%20Blind%20Box',
   'https://www.popmart.com/sg/products/5626/THE%20MONSTERS%20FALL%20IN%20WILD%20SERIES-Vinyl%20Plush%20Doll%20Pendant',
-  'https://www.popmart.com/sg/products/5625/THE%20MONSTERS%20FALL%20IN%20WILD%20SERIES-Vinyl%20Plush%20Doll',
-  'https://www.popmart.com/sg/products/5624/TwinkleTwinkle%20Bee%20Your%20Honey%20Figure'
+  'https://www.popmart.com/sg/products/5625/THE%20MONSTERS%20FALL%20IN%20WILD%20SERIES-Vinyl%20Plush%20Doll'
 ];
 
 async function main(): Promise<void> {
