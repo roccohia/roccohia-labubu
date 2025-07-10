@@ -62,9 +62,9 @@ jobs:
 
       - name: Run SGPM monitoring
         run: |
-          echo "🚀 启动SGPM监控..."
+          echo "🚀 启动高效SGPM监控..."
           npm run sgpm:monitor 2>&1 | tee sgpm-monitoring.log
-        timeout-minutes: 10
+        timeout-minutes: 8  # 减少超时时间
 
       - name: Check results
         if: always()

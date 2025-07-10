@@ -10,8 +10,10 @@ interface ProductInfo {
 
 export class SgpmMonitorService {
   private browser: Browser | null = null;
+  private page: Page | null = null; // 复用页面实例
   private botToken: string;
   private chatId: string;
+  private sessionEstablished: boolean = false; // 会话状态
 
   constructor(botToken?: string, chatId?: string) {
     this.botToken = botToken || process.env.SGPM_BOT_TOKEN || '';
@@ -19,11 +21,11 @@ export class SgpmMonitorService {
   }
 
   /**
-   * 初始化浏览器
+   * 初始化浏览器和复用页面
    */
   async initBrowser(): Promise<void> {
     try {
-      logger.info('🚀 启动浏览器...');
+      logger.info('🚀 启动高效浏览器...');
 
       this.browser = await puppeteer.launch({
         headless: true,
@@ -38,11 +40,21 @@ export class SgpmMonitorService {
           '--disable-web-security',
           '--disable-features=VizDisplayCompositor',
           '--disable-blink-features=AutomationControlled',
-          '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          // 性能优化参数
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--disable-features=TranslateUI',
+          '--disable-ipc-flooding-protection'
         ]
       });
 
-      logger.info('✅ 浏览器启动成功');
+      // 创建复用页面实例
+      this.page = await this.browser.newPage();
+      await this.setupAntiDetection(this.page);
+
+      logger.info('✅ 高效浏览器启动成功');
     } catch (error) {
       logger.error('❌ 浏览器启动失败:', error);
       throw error;
@@ -53,10 +65,18 @@ export class SgpmMonitorService {
    * 关闭浏览器
    */
   async closeBrowser(): Promise<void> {
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
+    try {
+      if (this.page) {
+        await this.page.close();
+        this.page = null;
+      }
+      if (this.browser) {
+        await this.browser.close();
+        this.browser = null;
+      }
       logger.info('🧹 浏览器已关闭');
+    } catch (error) {
+      logger.warn('⚠️ 浏览器关闭时出现警告:', error);
     }
   }
 
@@ -166,38 +186,43 @@ export class SgpmMonitorService {
   }
 
   /**
-   * 建立会话 - 先访问主页
+   * 建立全局会话 - 只执行一次
    */
-  private async establishSession(page: Page): Promise<void> {
+  private async establishGlobalSession(): Promise<void> {
+    if (this.sessionEstablished || !this.page) {
+      return; // 会话已建立或页面不存在
+    }
+
     try {
-      logger.info('🏠 建立会话：先访问主页...');
+      logger.info('🏠 建立全局会话：先访问主页...');
 
       // 访问主页
-      await page.goto('https://www.popmart.com/sg', {
+      await this.page.goto('https://www.popmart.com/sg', {
         waitUntil: 'domcontentloaded',
         timeout: 30000
       });
 
       // 模拟人类行为：优化等待时间
-      const randomWait = 1000 + Math.random() * 2000; // 减少随机等待时间
+      const randomWait = 800 + Math.random() * 1200; // 进一步减少等待时间
       await this.delay(randomWait);
 
       // 模拟鼠标移动
-      await page.mouse.move(100, 100);
-      await this.delay(200); // 减少等待时间
-      await page.mouse.move(200, 200);
+      await this.page.mouse.move(100, 100);
+      await this.delay(150);
+      await this.page.mouse.move(200, 200);
 
       // 滚动页面
-      await page.evaluate(() => {
+      await this.page.evaluate(() => {
         window.scrollTo(0, 300);
       });
-      await this.delay(500); // 减少等待时间
+      await this.delay(300);
 
       // 处理主页的Cookie和弹窗
-      await this.handleLocationModal(page);
-      await this.handleCookieAccept(page);
+      await this.handleLocationModal(this.page);
+      await this.handleCookieAccept(this.page);
 
-      logger.info('✅ 会话建立完成');
+      this.sessionEstablished = true;
+      logger.info('✅ 全局会话建立完成');
     } catch (error) {
       logger.warn('⚠️ 会话建立失败，继续直接访问:', error);
     }
@@ -258,7 +283,7 @@ export class SgpmMonitorService {
 
           if (stillBlocked) {
             logger.warn('🔄 重新建立会话...');
-            await this.establishSession(page);
+            await this.establishGlobalSession();
 
             // 重新访问目标页面
             const currentUrl = page.url();
@@ -304,6 +329,24 @@ export class SgpmMonitorService {
       logger.info('✅ 页面滚动完成');
     } catch (error) {
       logger.warn('⚠️ 页面滚动失败:', error);
+    }
+  }
+
+  /**
+   * 快速滚动页面（优化版）
+   */
+  private async quickScrollToLoadContent(page: Page): Promise<void> {
+    try {
+      // 快速滚动到底部和顶部
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight);
+        setTimeout(() => window.scrollTo(0, 0), 200);
+        setTimeout(() => window.scrollTo(0, document.body.scrollHeight / 2), 400);
+      });
+      await this.delay(600); // 总共只等待600ms
+
+    } catch (error) {
+      logger.warn('⚠️ 快速滚动失败:', error);
     }
   }
 
@@ -669,55 +712,43 @@ export class SgpmMonitorService {
    * 检查单个产品
    */
   async checkProduct(url: string): Promise<ProductInfo & { url: string }> {
-    if (!this.browser) {
-      throw new Error('浏览器未初始化');
+    if (!this.browser || !this.page) {
+      throw new Error('浏览器或页面未初始化');
     }
 
-    const page = await this.browser.newPage();
-
     try {
-      // 设置反检测措施
-      await this.setupAntiDetection(page);
-
-      // 分步骤访问策略：先访问主页建立会话
-      await this.establishSession(page);
+      // 确保全局会话已建立（只执行一次）
+      await this.establishGlobalSession();
 
       logger.info(`🌐 访问产品页面: ${url}`);
 
       // 导航到页面
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await this.page!.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-      // 等待初始加载
-      await this.delay(3000);
+      // 等待初始加载（减少等待时间）
+      await this.delay(1500);
 
-      // 第一步：处理地区弹窗
-      await this.handleLocationModal(page);
+      // 处理弹窗（由于会话已建立，通常不需要）
+      await this.handleLocationModal(this.page!);
 
-      // 第二步：处理Cookie Accept按钮
-      await this.handleCookieAccept(page);
+      // 快速滚动确保内容加载
+      await this.quickScrollToLoadContent(this.page!);
 
-      // 滚动页面确保所有内容加载
-      await this.scrollPageToLoadContent(page);
-
-      // 等待页面稳定（优化等待时间）
+      // 等待页面稳定（大幅减少等待时间）
       const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
-      const waitTime = isCI ? 8000 : 5000; // 减少等待时间
+      const waitTime = isCI ? 3000 : 1500; // 大幅减少等待时间
       await this.delay(waitTime);
 
-      // CI环境下进行页面健康检查
-      if (isCI) {
-        await this.performCIHealthCheck(page);
-      }
-
       // 提取产品信息
-      const productInfo = await this.extractProductInfo(page);
-      
+      const productInfo = await this.extractProductInfo(this.page!);
+
       logger.info(`📊 ${productInfo.title}: ${productInfo.inStock ? '✅ 有货' : '❌ 缺货'} | 价格: ${productInfo.price || '未知'}`);
 
       return { ...productInfo, url };
-      
-    } finally {
-      await page.close();
+
+    } catch (error) {
+      logger.error(`❌ 检查产品失败 ${url}:`, error);
+      throw error;
     }
   }
 
@@ -781,16 +812,16 @@ export class SgpmMonitorService {
           await this.sendTelegramNotification(productInfo);
         }
 
-        // 优化：减少产品间延迟
+        // 优化：大幅减少产品间延迟
         if (i < urls.length - 1) {
-          await this.delay(1000); // 从2秒减少到1秒
+          await this.delay(500); // 从1秒减少到0.5秒
         }
 
       } catch (error) {
         logger.error(`❌ 检查产品失败 ${url}:`, error);
         // 错误时也要短暂延迟，避免过快重试
         if (i < urls.length - 1) {
-          await this.delay(500);
+          await this.delay(300); // 减少错误延迟
         }
       }
     }
